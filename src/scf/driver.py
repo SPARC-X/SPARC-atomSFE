@@ -361,7 +361,7 @@ class SwitchesFlags:
             self.use_metagga = True
         
         # LDA/GGA functionals: no special flags (default False)
-        elif xc_functional in ['LDA_PZ', 'LDA_PW', 'GGA_PBE']:
+        elif xc_functional in ['LDA_SVWN', 'LDA_PZ', 'LDA_PW', 'GGA_PBE']:
             pass
 
         # Invalid XC functional
@@ -394,7 +394,7 @@ class SwitchesFlags:
         if xc_functional in ['EXX', 'RPA']:
             assert use_oep is True, \
                 USE_OEP_NOT_TRUE_FOR_OEP_FUNCTIONAL_ERROR.format(xc_functional)
-        elif xc_functional in ['None', 'Schrodinger', 'LDA_PZ', 'LDA_PW', 'GGA_PBE', 'SCAN', 'RSCAN', 'R2SCAN', 'HF']:
+        elif xc_functional in ['None', 'Schrodinger', 'LDA_SVWN', 'LDA_PZ', 'LDA_PW', 'GGA_PBE', 'SCAN', 'RSCAN', 'R2SCAN', 'HF']:
             assert use_oep is False, \
                 USE_OEP_NOT_FALSE_FOR_NON_OEP_FUNCTIONAL_ERROR.format(xc_functional)
         else:
@@ -1038,7 +1038,7 @@ class SCFDriver:
         occupation_info : OccupationInfo
             Occupation numbers and quantum numbers for atomic states
         xc_functional : str
-            Name of XC functional (e.g., 'LDA_PZ', 'GGA_PBE', 'SCAN')
+            Name of XC functional (e.g., 'LDA_SVWN', 'LDA_PZ', 'GGA_PBE', 'SCAN')
             Used to determine what density-related quantities to compute
             Also used to initialize the XC calculator internally
         use_oep : bool, optional
@@ -1207,7 +1207,7 @@ class SCFDriver:
         Returns
         -------
         xc_calculator : XCEvaluator or None
-            Specific XC functional evaluator (e.g., LDA_PZ, GGA_PBE).
+            Specific XC functional evaluator (e.g., LDA_SVWN, LDA_PZ, GGA_PBE).
             Returns None if xc_functional is 'None'.
         
         Raises

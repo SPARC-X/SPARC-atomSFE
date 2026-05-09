@@ -4,6 +4,13 @@
 -changes
 
 ----------------
+May 9, 2026
+Name: Qihao Cheng
+Changes: (src/xc/, src/scf/driver.py, src/solver.py, tests/data)
+1. LDA naming: `LDA_SVWN` = Slater+VWN, `LDA_PZ` = Slater+Perdew–Zunger; stop using `LDA_PZ` for the VWN case.
+2. Update `FUNCTIONAL_MAP`, SCF driver XC lists, `functional_requirements`, and tests/data defaults to match.
+
+----------------
 May 4, 2026
 Name: Qihao Cheng
 Changes: (solver.py)

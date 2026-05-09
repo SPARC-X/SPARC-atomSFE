@@ -444,7 +444,7 @@ class AtomicDFTSolver:
     n_electrons                       : float # Number of electrons in the system, can be fractional
     all_electron_flag                 : bool  # True for all-electron calculation, False for pseudopotential calculation
     spin_polarized_flag               : bool  # internal: always False (constructor toggle hidden in this build)
-    xc_functional                     : str   # XC functional type: 'GGA_PBE', 'RPA', 'EXX', 'LDA_PZ', 'LDA_PW', 'SCAN', 'RSCAN', 'R2SCAN'
+    xc_functional                     : str   # XC functional type: 'GGA_PBE', 'RPA', 'EXX', 'LDA_SVWN', 'LDA_PZ', 'LDA_PW', 'SCAN', 'RSCAN', 'R2SCAN'
     use_oep                           : bool  # Enable optimized effective potential (OEP) workflow in SCF
 
     # Grid, basis, and mesh parameters
@@ -1335,7 +1335,7 @@ class AtomicDFTSolver:
         # Be careful! This output can also be used to initialize the AtomicDFTSolver from output files!
         #     So, do not change the format of this output! Or if you want to change, please update the from_output_file method!
         print("===========================================================================")
-        print("*                  SPARC-atomSFE  (version May 04, 2026)                  *")
+        print("*                  SPARC-atomSFE  (version May 08, 2026)                  *")
         print("*   Copyright (c) 2026 Material Physics & Mechanics Group, Georgia Tech   *")
         print("*           Distributed under GNU General Public License 3 (GPL)          *")
         print("*                   Start time: {}                  *".format(get_sparc_time_string())) # Do not change the length for this line

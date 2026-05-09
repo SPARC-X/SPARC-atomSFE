@@ -13,7 +13,7 @@ The raw datasets can be very large, so the typical workflow is:
 
 Plotting scripts that **compare** or **convergence-test** sweep results (read under `summary/<functional>/…`) live here:
 
-- `compare/lda_pz_accuracy_test_featom.py` — FEATOM reference vs LDA_PZ sweep (per-eigenvalue errors); run with no arguments (reads ``summary/lda_pz/``, writes ``lda_pz_accuracy_test_featom.png``).
+- `compare/lda_svwn_accuracy_test_featom.py` — FEATOM reference vs LDA_SVWN sweep (per-eigenvalue errors); run with no arguments (reads ``summary/lda_svwn/``, writes ``lda_svwn_accuracy_test_featom.png``).
 - `compare/hf_accuracy_test_neural_lehtola.py` — HF ``summary/hf`` vs ``reference/hf`` closed-subshell reference (total energy, HOMO, exchange); prints detail and writes ``hf_accuracy_test_neural_lehtola_summary.txt`` (see ``--out-txt``).
 - `compare/gga_pbe_convergence_test.py` — GGA-PBE sweep convergence test: max energy / eigenvalue error vs the finest reference case.
 
@@ -46,30 +46,30 @@ python generate_dataset.py --dry-run
 
 ---
 
-### `generate_convergence_dataset.py`
+### `generate_sweep_dataset.py`
 
-Convergence-oriented multi-case generator.
+Multi-case generator for finite-element and domain-radius sweeps (discretization batches).
 
 - Supports FE sweep and domain-radius sweep.
 - Supports `use_oep` job selection (`false/true/both`).
-- Writes a multi-entry convergence manifest.
+- Writes a multi-entry manifest (`convergence_dataset_manifest.json`).
 
 Common usage:
 
 ```bash
 # From repository root
 # Plan only
-python tests/data/generate_convergence_dataset.py --dry-run
+python tests/data/generate_sweep_dataset.py --dry-run
 
 # Generate all selected jobs
-python tests/data/generate_convergence_dataset.py --regenerate-data
+python tests/data/generate_sweep_dataset.py --regenerate-data
 
 # Example: both OEP and non-OEP job sets
-python tests/data/generate_convergence_dataset.py --use-oep-options both --regenerate-data
+python tests/data/generate_sweep_dataset.py --use-oep-options both --regenerate-data
 
 # Or run locally from this folder
 cd tests/data
-python generate_convergence_dataset.py --dry-run
+python generate_sweep_dataset.py --dry-run
 ```
 
 ---
@@ -174,7 +174,7 @@ Keeps this folder tracked when no data files exist.
 
 ```bash
 # 1) Generate data
-python tests/data/generate_convergence_dataset.py --regenerate-data
+python tests/data/generate_sweep_dataset.py --regenerate-data
 
 # 2) Build summaries from out.txt
 python tests/data/build_summary_from_out.py

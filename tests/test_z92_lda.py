@@ -1,8 +1,8 @@
 """
-Test case for Z92 LDA_PZ calculation against reference values.
+Test case for Z92 LDA_SVWN calculation against reference values.
 
 This module tests the accuracy of the AtomicDFTSolver for Z=92
-using LDA_PZ functional by comparing computed eigenvalues with reference
+using LDA_SVWN functional by comparing computed eigenvalues with reference
 values from the featom paper.
 
 Reference:
@@ -55,13 +55,13 @@ def run_z92_lda_once():
     global _Z92_LDA_RUN_CACHE
     if _Z92_LDA_RUN_CACHE is not None:
         results, elapsed_time = _Z92_LDA_RUN_CACHE
-        print(f"Using cached Z92 LDA_PZ results (computed in {elapsed_time:.2f} seconds)")
+        print(f"Using cached Z92 LDA_SVWN results (computed in {elapsed_time:.2f} seconds)")
         return _Z92_LDA_RUN_CACHE
 
     start_time = time.time()
     atomic_dft_solver = AtomicDFTSolver(
         atomic_number           = 92,
-        xc_functional           = "LDA_PZ",
+        xc_functional           = "LDA_SVWN",
         domain_size             = 40.0,
         finite_element_number   = 8,
         polynomial_order        = 31,
@@ -80,10 +80,10 @@ def run_z92_lda_once():
     return _Z92_LDA_RUN_CACHE
 
 
-def test_z92_lda_pz_eigenvalues():
-    """Test Z92 LDA_PZ calculation against reference eigenvalues."""
+def test_z92_lda_svwn_eigenvalues():
+    """Test Z92 LDA_SVWN calculation against reference eigenvalues."""
     print("\n" + "=" * 60)
-    print("Test: Z92 LDA_PZ eigenvalues vs. featom reference")
+    print("Test: Z92 LDA_SVWN eigenvalues vs. featom reference")
     print("=" * 60)
     print("Reference: Certik et al., Comput. Phys. Commun. 297, 109051 (2024)")
     print("=" * 60)
@@ -151,26 +151,26 @@ def test_z92_lda_pz_eigenvalues():
 
         tolerance = 1e-5
         if max_diff < tolerance:
-            print_test_passed(f"Z92 LDA_PZ eigenvalues (max diff < {tolerance:.1e} Hartree)")
+            print_test_passed(f"Z92 LDA_SVWN eigenvalues (max diff < {tolerance:.1e} Hartree)")
             return
 
         error_msg = f"Max difference {max_diff:.2e} exceeds tolerance {tolerance:.1e}"
-        print_test_failed("Z92 LDA_PZ eigenvalues", error_msg)
+        print_test_failed("Z92 LDA_SVWN eigenvalues", error_msg)
         print("\nWarning: Differences exceed tolerance but may still be acceptable")
         print("         depending on computational parameters and mesh settings.")
         raise AssertionError(error_msg)
 
     except Exception as e:
-        print_test_failed("Z92 LDA_PZ eigenvalues", str(e))
+        print_test_failed("Z92 LDA_SVWN eigenvalues", str(e))
         import traceback
         traceback.print_exc()
         raise
 
 
-def test_z92_lda_pz_basic():
-    """Test basic Z92 LDA_PZ calculation without detailed comparison."""
+def test_z92_lda_svwn_basic():
+    """Test basic Z92 LDA_SVWN calculation without detailed comparison."""
     print("\n" + "=" * 60)
-    print("Test: Basic Z92 LDA_PZ calculation")
+    print("Test: Basic Z92 LDA_SVWN calculation")
     print("=" * 60)
 
     try:
@@ -191,11 +191,11 @@ def test_z92_lda_pz_basic():
         assert len(eigen_energies) > 0, "Eigenvalues should have non-zero length"
         assert np.all(eigen_energies < 0), "All eigenvalues should be negative (bound states)"
 
-        print_test_passed("Basic Z92 LDA_PZ calculation")
+        print_test_passed("Basic Z92 LDA_SVWN calculation")
         return
 
     except Exception as e:
-        print_test_failed("Basic Z92 LDA_PZ calculation", str(e))
+        print_test_failed("Basic Z92 LDA_SVWN calculation", str(e))
         import traceback
         traceback.print_exc()
         raise
@@ -203,14 +203,14 @@ def test_z92_lda_pz_basic():
 
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print("Z92 LDA_PZ Test Suite")
+    print("Z92 LDA_SVWN Test Suite")
     print("=" * 60)
     print("Reference: Certik et al., Comput. Phys. Commun. 297, 109051 (2024)")
     print("=" * 60)
 
     test_results = []
-    test_results.append(("Basic calculation", _run_as_bool(test_z92_lda_pz_basic)))
-    test_results.append(("Eigenvalue comparison", _run_as_bool(test_z92_lda_pz_eigenvalues)))
+    test_results.append(("Basic calculation", _run_as_bool(test_z92_lda_svwn_basic)))
+    test_results.append(("Eigenvalue comparison", _run_as_bool(test_z92_lda_svwn_eigenvalues)))
 
     print("\n" + "=" * 60)
     print("Test Summary")

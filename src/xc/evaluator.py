@@ -720,14 +720,15 @@ def create_xc_evaluator(
     >>> pot_data = evaluator.compute_xc(density_data)
     """
     # Import functional implementations
-    from .lda import LDA_SVWN, LDA_SPW
+    from .lda import LDA_SVWN, LDA_SPW, LDA_PZ
     from .gga_pbe import GGA_PBE
     from .meta_scan import SCAN, rSCAN, r2SCAN
     
     # Simple mapping: functional name → class
     FUNCTIONAL_MAP = {
         # LDA functionals
-        'LDA_PZ': LDA_SVWN,  # Note: LDA_PZ uses VWN correlation in current implementation
+        'LDA_SVWN': LDA_SVWN,
+        'LDA_PZ': LDA_PZ,
         'LDA_PW': LDA_SPW,
         
         # GGA functionals

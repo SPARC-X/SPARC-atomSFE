@@ -60,6 +60,11 @@ class FunctionalRequirements:
 # Registry of functional requirements
 _FUNCTIONAL_REQUIREMENTS: Dict[str, FunctionalRequirements] = {
     # LDA functionals
+    'LDA_SVWN': FunctionalRequirements(
+        needs_gradient=False,
+        needs_tau=False,
+        functional_type='LDA'
+    ),
     'LDA_PZ': FunctionalRequirements(
         needs_gradient=False,
         needs_tau=False,

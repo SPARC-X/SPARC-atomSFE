@@ -8,7 +8,7 @@ This script is a single-case dataset generator:
 3) it writes a one-entry manifest for reproducibility.
 
 Presets (``--dataset``):
-- ``default``: neutral atoms Z=1..92 under ``lda_pz/`` (or ``<xc-functional>/``).
+- ``default``: neutral atoms Z=1..92 under ``lda_svwn/`` (or ``<xc-functional>/``).
 - ``hf_charged``: Hartree-Fock for the Lehtola (2019) Table 5 species set; ``Z`` and
   ``N_e`` are the fixed lists ``HF_CHARGED_ATOMIC_NUMBER_LIST`` and
   ``HF_CHARGED_N_ELECTRONS_LIST`` (same order as ``reference/hf/charged_atoms_hf.json``
@@ -39,8 +39,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from atom.src.data.data_manager import AtomicDataManager
 
-# --- Solver settings for one dataset (default preset; align like generate_convergence_dataset) ---
-XC_FUNCTIONAL            = "LDA_PZ"
+# --- Solver settings for one dataset (default preset; align like generate_sweep_dataset) ---
+XC_FUNCTIONAL            = "LDA_SVWN"
 USE_OEP_DEFAULT          = False
 DOMAIN_SIZE              = 40.0
 FINITE_ELEMENTS_NUMBER   = 12
@@ -64,7 +64,7 @@ _HF_CHARGED_SCF_TOLERANCE = 1e-10
 
 
 def _data_subdir_slug(xc_functional: str, use_oep: bool) -> str:
-    """One folder per XC label, e.g. ``lda_pz``, ``gga_pbe``, ``hf``."""
+    """One folder per XC label, e.g. ``lda_svwn``, ``gga_pbe``, ``hf``."""
     suffix = "_oep" if use_oep else ""
     return f"{xc_functional.lower()}{suffix}"
 
@@ -174,7 +174,7 @@ def main() -> None:
         type=str,
         choices=("default", "hf_charged"),
         default="default",
-        help="default=LDA_PZ Z=1..92; hf_charged=HF Lehtola charged species (see module lists).",
+        help="default=LDA_SVWN Z=1..92; hf_charged=HF Lehtola charged species (see module lists).",
     )
     parser.add_argument(
         "--base-dir",

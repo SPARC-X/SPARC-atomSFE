@@ -2,7 +2,8 @@
 LDA (Local Density Approximation) Functionals
 
 Implements LDA exchange-correlation functionals:
-- LDA_PZ: Slater exchange + Perdew-Zunger correlation (uses VWN in current implementation)
+- LDA_SVWN: Slater exchange + Vosko-Wilk-Nusair (VWN) correlation
+- LDA_PZ: Slater exchange + Perdew-Zunger correlation
 - LDA_PW: Slater exchange + Perdew-Wang correlation
 
 LDA functionals only depend on local density ρ(r), not on gradients or tau.
@@ -18,7 +19,7 @@ from .evaluator import XCEvaluator, XCParameters, GenericXCResult, DensityData
 @dataclass
 class LDASVWNParameters(XCParameters):
     """
-    Parameters for LDA_PZ functional (Slater + VWN correlation, matching SPARC's LDA_PZ name).
+    Parameters for LDA_SVWN (Slater exchange + VWN correlation).
     
     All parameters can be optimized using autodiff for delta learning.
     
@@ -45,7 +46,7 @@ class LDASVWNParameters(XCParameters):
         VWN parameter 'y'
         Standard: -0.10498
     """
-    functional_name: str = 'LDA_PZ'  # Fixed for this functional (matches SPARC naming)
+    functional_name: str = 'LDA_SVWN'
     
     # Slater exchange multiplier
     C_x: float = 1.0  # Default: 1.0 (standard Slater)
@@ -104,12 +105,30 @@ class LDASPWParameters(XCParameters):
     beta4 : float = 0.49294
 
 
+@dataclass
+class LDAPZParameters(XCParameters):
+    """
+    Parameters for LDA_PZ (Slater + Perdew-Zunger correlation).
+
+    Correlation parametrization matches the ``pz`` routine in SPARC-style
+    reference code (Perdew & Zunger, Phys. Rev. B 23, 5048 (1981)).
+    """
+    functional_name: str = 'LDA_PZ'
+
+    C_x: float = 1.0
+
+    A: float = 0.0311
+    B: float = -0.048
+    C: float = 0.002
+    D: float = -0.0116
+    gamma1: float = -0.1423
+    beta1: float = 1.0529
+    beta2: float = 0.3334
+
+
 class LDA_SVWN(XCEvaluator):
     """
     LDA with Slater exchange and Vosko-Wilk-Nusair correlation.
-    
-    Note: This is mapped to 'LDA_PZ' to match SPARC naming convention,
-    though SPARC's LDA_PZ uses Perdew-Zunger correlation instead.
     
     Exchange: Slater (1951)
     Correlation: Vosko, Wilk, Nusair (1980)
@@ -281,7 +300,7 @@ class LDA_SPW(XCEvaluator):
         density_data: DensityData
     ) -> GenericXCResult:
         """
-        Compute Slater exchange (same as LDA_PZ).
+        Compute Slater exchange (same as LDA_SVWN).
         
         Parameters
         ----------
@@ -295,7 +314,7 @@ class LDA_SPW(XCEvaluator):
         
         Notes
         -----
-        Uses the same Slater exchange as LDA_PZ.
+        Uses the same Slater exchange as LDA_SVWN.
         Only the correlation part differs (Perdew-Wang vs VWN).
         """
         rho = density_data.rho
@@ -382,7 +401,86 @@ class LDA_SPW(XCEvaluator):
             de_dsigma=None,
             de_dtau=None
         )
-    
+
+
+class LDA_PZ(XCEvaluator):
+    """
+    LDA with Slater exchange and Perdew-Zunger correlation.
+
+    Exchange: Slater (1951), same as other LDA evaluators here.
+    Correlation: Perdew & Zunger, Phys. Rev. B 23, 5048 (1981),
+    implemented to match the ``pz`` branch (icorr == 1) in the reference
+    non-spin-polarized atomic XC driver.
+    """
+
+    def _default_params(self) -> LDAPZParameters:
+        return LDAPZParameters()
+
+    def compute_exchange_generic(
+        self,
+        density_data: DensityData,
+    ) -> GenericXCResult:
+        rho = density_data.rho
+        rho_cbrt = rho ** (1 / 3)
+        e_x_standard = -0.7385587663820224 * rho_cbrt
+        v_x_standard = -0.9847450218426966 * rho_cbrt
+        C_x = self.params.C_x
+        return GenericXCResult(
+            v_generic=C_x * v_x_standard,
+            e_generic=C_x * e_x_standard,
+            de_dsigma=None,
+            de_dtau=None,
+        )
+
+    def compute_correlation_generic(
+        self,
+        density_data: DensityData,
+    ) -> GenericXCResult:
+        """
+        Perdew-Zunger correlation energy density ε_c and potential V_c.
+
+        Uses the same piecewise formulas as ``pz(rho)`` in the reference
+        MATLAB implementation (rs = (3/(4πρ))^(1/3), rs < 1 vs rs >= 1).
+        """
+        rho = density_data.rho
+        p = self.params
+        rs = (0.75 / (np.pi * rho)) ** (1.0 / 3.0)
+
+        ec = np.zeros_like(rho, dtype=float)
+        vc = np.zeros_like(rho, dtype=float)
+
+        is_lt1 = rs < 1.0
+        is_ge1 = ~is_lt1
+
+        if np.any(is_lt1):
+            rsl = rs[is_lt1]
+            lnrs = np.log(rsl)
+            ec[is_lt1] = p.A * lnrs + p.B + p.C * rsl * lnrs + p.D * rsl
+            vc[is_lt1] = (
+                lnrs * (p.A + (2.0 / 3.0) * p.C * rsl)
+                + (p.B - (1.0 / 3.0) * p.A)
+                + (1.0 / 3.0) * (2.0 * p.D - p.C) * rsl
+            )
+
+        if np.any(is_ge1):
+            rsh = rs[is_ge1]
+            sqrtrs = np.sqrt(rsh)
+            ox = 1.0 + p.beta1 * sqrtrs + p.beta2 * rsh
+            ec_h = p.gamma1 / ox
+            ec[is_ge1] = ec_h
+            vc[is_ge1] = (
+                ec_h
+                * (1.0 + (7.0 / 6.0) * p.beta1 * sqrtrs + (4.0 / 3.0) * p.beta2 * rsh)
+                / ox
+            )
+
+        return GenericXCResult(
+            v_generic=vc,
+            e_generic=ec,
+            de_dsigma=None,
+            de_dtau=None,
+        )
+
 
 def lda_exchange_potential_generic(rho: np.ndarray) -> np.ndarray:
     """

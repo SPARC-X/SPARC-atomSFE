@@ -6,7 +6,7 @@ from .functional_requirements import (
     get_functionals_by_type,
     FunctionalRequirements
 )
-from .lda import LDA_SVWN, LDA_SPW
+from .lda import LDA_SVWN, LDA_SPW, LDA_PZ
 from .gga_pbe import GGA_PBE
 from .meta_scan import SCAN, rSCAN, r2SCAN
 from .hf import HartreeFockExchange

@@ -4,7 +4,7 @@ This module validates that representative solver configurations run end-to-end
 without runtime errors and return core output fields (`rho`, `orbitals`).
 
 Functional families covered in this file:
-1) LDA      : `LDA_PZ`
+1) LDA      : `LDA_SVWN`
 2) GGA      : `GGA_PBE`
 3) meta-GGA : `RSCAN`
 4) HF       : `HF`
@@ -54,7 +54,7 @@ ALL_ELECTRON_FLAG       = True
 LDA_SOLVER_KWARGS = {
     "atomic_number"           : ATOMIC_NUMBER,
     "verbose"                 : VERBOSE,
-    "xc_functional"           : "LDA_PZ",
+    "xc_functional"           : "LDA_SVWN",
     "all_electron_flag"       : ALL_ELECTRON_FLAG,
     "domain_size"             : DOMAIN_SIZE,
     "finite_element_number"   : FINITE_ELEMENT_NUMBER,

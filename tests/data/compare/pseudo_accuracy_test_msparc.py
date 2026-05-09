@@ -1,7 +1,7 @@
 """
 Compare ``tests/data/summary/pseudo/<xc>/configuration_energy_summary.json``
 against ``tests/data/reference/pseudo/msparc_atoms_*.json`` for four functionals
-(LDA_PZ, GGA_PBE, RSCAN, PBE0).
+(LDA_SVWN, GGA_PBE, RSCAN, PBE0).
 
 Per element:
 - total energy ``Etot`` vs ``total_energy_ha`` from the summary row
@@ -30,7 +30,7 @@ _DEFAULT_OUT_TXT = _COMPARE_DIR / "pseudo_accuracy_test_msparc_summary.txt"
 
 # (summary subdir under tests/data/summary/pseudo, M-SPARC reference filename, date_pseudo folder name)
 _CASES: tuple[tuple[str, str, str], ...] = (
-    ("lda_pz", "msparc_atoms_lda_pz.json", "LDA_PZ"),
+    ("lda_svwn", "msparc_atoms_lda_svwn.json", "LDA_SVWN"),
     ("gga_pbe", "msparc_atoms_gga_pbe.json", "GGA_PBE"),
     ("rscan", "msparc_atoms_rscan.json", "rSCAN"),
     ("pbe0", "msparc_atoms_pbe0.json", "PBE0"),

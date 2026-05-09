@@ -23,9 +23,18 @@ _DATA_DIR = Path(__file__).resolve().parent.parent
 _SUMMARY_DIR = _DATA_DIR / "summary"
 _DEFAULT_GGA_PBE_ROOT = _SUMMARY_DIR / "gga_pbe"
 
-AXIS_LABEL_FONTSIZE = 15
-TICK_LABEL_FONTSIZE = 12
-LEGEND_FONTSIZE = 12
+plt.rcParams.update(
+    {
+        "font.family": "serif",
+        "mathtext.fontset": "stix",
+        "font.size": 15,
+    }
+)
+
+AXIS_LABEL_FONTSIZE = 18
+X_AXIS_LABEL_FONTSIZE = 18
+TICK_LABEL_FONTSIZE = 15
+LEGEND_FONTSIZE = 18
 
 
 def _load_dataset_summary(path: Path) -> dict:
@@ -129,7 +138,7 @@ def main() -> None:
 
     x_r, y_r_energy, y_r_eigen = _build_curve("domain_radius_sweep", root)
     x_fe, y_fe_energy, y_fe_eigen = _build_curve("finite_element_sweep", root)
-    fe_mask = (x_fe > 2.0) & (~np.isclose(x_fe, 13.0))
+    fe_mask = (x_fe > 1.0) & (~np.isclose(x_fe, 13.0))
     x_fe = x_fe[fe_mask]
     y_fe_energy = y_fe_energy[fe_mask]
     y_fe_eigen = y_fe_eigen[fe_mask]
@@ -138,7 +147,7 @@ def main() -> None:
 
     ax_l.semilogy(x_r, np.maximum(y_r_energy, 1e-20), marker="o", lw=1.8, label="Energy")
     ax_l.semilogy(x_r, np.maximum(y_r_eigen, 1e-20), marker="s", lw=1.8, label="Eigenvalues")
-    ax_l.set_xlabel(r"$R_{\mathrm{max}}\ \mathrm{(Bohr)}$", fontsize=AXIS_LABEL_FONTSIZE)
+    ax_l.set_xlabel(r"$R_{max}$ (Bohr)", fontsize=X_AXIS_LABEL_FONTSIZE)
     ax_l.set_ylabel(r"Error (Ha)", fontsize=AXIS_LABEL_FONTSIZE)
     ax_l.yaxis.set_major_locator(LogLocator(base=10))
     ax_l.yaxis.set_minor_locator(LogLocator(base=10, subs=np.arange(2, 10)))
@@ -152,7 +161,7 @@ def main() -> None:
 
     ax_r.semilogy(x_fe, np.maximum(y_fe_energy, 1e-20), marker="o", lw=1.8, label="Energy")
     ax_r.semilogy(x_fe, np.maximum(y_fe_eigen, 1e-20), marker="s", lw=1.8, label="Eigenvalues")
-    ax_r.set_xlabel(r"$N_{\mathrm{fe}}$", fontsize=AXIS_LABEL_FONTSIZE)
+    ax_r.set_xlabel(r"$N_{fe}$", fontsize=X_AXIS_LABEL_FONTSIZE)
     ax_r.set_ylabel(r"Error (Ha)", fontsize=AXIS_LABEL_FONTSIZE)
     ax_r.yaxis.set_major_locator(LogLocator(base=10, numticks=100))
     ax_r.yaxis.set_minor_locator(LogLocator(base=10, subs=tuple(np.arange(2, 10)), numticks=100))
@@ -175,6 +184,7 @@ def main() -> None:
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=600, bbox_inches="tight")
+    fig.savefig("gga_pbe_convergence_test_summary.pdf", format="pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"Wrote figure: {out_png}")
 

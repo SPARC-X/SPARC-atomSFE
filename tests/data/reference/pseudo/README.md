@@ -4,7 +4,7 @@ This folder stores pseudopotential-based atomic reference datasets generated wit
 
 ## Files
 
-- `msparc_atoms_lda_pz.json` - LDA_PZ pseudopotential atomic references.
+- `msparc_atoms_lda_svwn.json` - LDA_SVWN pseudopotential atomic references.
 - `msparc_atoms_gga_pbe.json` - GGA_PBE pseudopotential atomic references.
 - `msparc_atoms_rscan.json` - RSCAN pseudopotential atomic references.
 - `msparc_atoms_pbe0.json` - PBE0 pseudopotential atomic references.
