@@ -340,7 +340,7 @@ class LDA_SPW(XCEvaluator):
     def compute_correlation_generic(
         self,
         density_data: DensityData
-        ) -> GenericXCResult:
+    ) -> GenericXCResult:
         """
         Compute Perdew-Wang correlation.
         

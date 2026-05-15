@@ -117,7 +117,7 @@ Typical use: post-process or differentiate **around** a converged `solve()` stat
 
 **Acknowledgements**
 
-- U.S. Department of Energy (DOE), Office of Science (SC): **DE-SC0019410**
+- U.S. Department of Energy (DOE), Office of Science (SC): **DE-SC0023445**
 
 ---
 

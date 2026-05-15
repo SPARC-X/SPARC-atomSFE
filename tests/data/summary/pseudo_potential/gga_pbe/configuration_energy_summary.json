@@ -1,0 +1,250 @@
+{
+  "dataset_dir": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/date_pseudo/GGA_PBE",
+  "pseudo_valence_dataset": true,
+  "input_parameters": {
+    "all_electron_flag": false,
+    "spin_polarized_flag": false,
+    "xc_functional": "GGA_PBE",
+    "use_oep": false,
+    "domain_size": 40.0,
+    "finite_element_number": 10,
+    "polynomial_order": 20,
+    "quadrature_point_number": 60,
+    "oep_basis_number": null,
+    "mesh_type": "exponential",
+    "mesh_concentration": 101.0,
+    "mesh_spacing": null,
+    "scf_tolerance": 1e-11,
+    "max_scf_iterations": null,
+    "max_scf_iterations_outer": null,
+    "use_pulay_mixing": null,
+    "use_preconditioner": false,
+    "pulay_mixing_parameter": null,
+    "pulay_mixing_history": null,
+    "pulay_mixing_frequency": null,
+    "linear_mixing_alpha1": null,
+    "linear_mixing_alpha2": null,
+    "psp_dir_path": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atom/psps",
+    "psp_file_name": "02.psp8",
+    "hybrid_mixing_parameter": null,
+    "frequency_quadrature_point_number": null,
+    "angular_momentum_cutoff": null,
+    "double_hybrid_flag": false,
+    "oep_mixing_parameter": null,
+    "enable_parallelization": null
+  },
+  "input_parameters_note": "Representative solver settings from the first parsed element in ELEMENTS order; ``solver_finite_element_number`` on each configuration may differ (e.g. rSCAN He patch).",
+  "n_configurations": 7,
+  "n_summarized": 7,
+  "config_summaries": [
+    {
+      "configuration": "configuration_001_He",
+      "element": "He",
+      "atomic_number": 2,
+      "n_electrons": 2.0,
+      "converged": true,
+      "energies_ha": {
+        "kinetic_radial": 2.472877029062583,
+        "kinetic_angular": 0.0,
+        "total_kinetic": 2.472877029062583,
+        "external_potential": -4.688197728645561,
+        "hartree": 1.9809261186871017,
+        "exchange": -0.9705375069907596,
+        "correlation": -0.04566299068528935,
+        "nonlocal_psp": -1.6027361498065682,
+        "total_potential": -5.326208257441078,
+        "total_energy": -2.8533312283784946
+      },
+      "total_energy_ha": -2.8533312283784946,
+      "occupied_state_count": 1,
+      "occupied_eigenvalues_ha": [
+        -0.5793112698831807
+      ],
+      "lowest_5_unoccupied_eigs_ha": [],
+      "atom_dataset_path": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/date_pseudo/GGA_PBE/He/data/atom_dataset.json",
+      "solver_finite_element_number": 10,
+      "solve_wall_time_sec": 0.18708178300585132
+    },
+    {
+      "configuration": "configuration_002_N",
+      "element": "N",
+      "atomic_number": 7,
+      "n_electrons": 7.0,
+      "converged": true,
+      "energies_ha": {
+        "kinetic_radial": 2.877031087647645,
+        "kinetic_angular": 3.3926255143415505,
+        "total_kinetic": 6.269656601989196,
+        "external_potential": -21.13338892974409,
+        "hartree": 8.140191428895749,
+        "exchange": -2.5462233953051925,
+        "correlation": -0.17464425722541493,
+        "nonlocal_psp": -0.6148935410464543,
+        "total_potential": -16.328958694425403,
+        "total_energy": -10.059302092436207
+      },
+      "total_energy_ha": -10.059302092436207,
+      "occupied_state_count": 2,
+      "occupied_eigenvalues_ha": [
+        -0.6829134833343872,
+        -0.26055100909929185
+      ],
+      "lowest_5_unoccupied_eigs_ha": [],
+      "atom_dataset_path": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/date_pseudo/GGA_PBE/N/data/atom_dataset.json",
+      "solver_finite_element_number": 10,
+      "solve_wall_time_sec": 0.32996866899338784
+    },
+    {
+      "configuration": "configuration_003_O",
+      "element": "O",
+      "atomic_number": 8,
+      "n_electrons": 8.0,
+      "converged": true,
+      "energies_ha": {
+        "kinetic_radial": 4.603507533924452,
+        "kinetic_angular": 5.809496839130989,
+        "total_kinetic": 10.41300437305544,
+        "external_potential": -34.111088303056746,
+        "hartree": 13.578297294632623,
+        "exchange": -3.67268409827901,
+        "correlation": -0.22556298627692636,
+        "nonlocal_psp": -2.2556727577743687,
+        "total_potential": -26.68671085075443,
+        "total_energy": -16.27370647769899
+      },
+      "total_energy_ha": -16.27370647769899,
+      "occupied_state_count": 2,
+      "occupied_eigenvalues_ha": [
+        -0.880575429277999,
+        -0.3318725609960803
+      ],
+      "lowest_5_unoccupied_eigs_ha": [],
+      "atom_dataset_path": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/date_pseudo/GGA_PBE/O/data/atom_dataset.json",
+      "solver_finite_element_number": 10,
+      "solve_wall_time_sec": 0.3425781249970896
+    },
+    {
+      "configuration": "configuration_004_Fe",
+      "element": "Fe",
+      "atomic_number": 26,
+      "n_electrons": 26.0,
+      "converged": true,
+      "energies_ha": {
+        "kinetic_radial": 18.229257577613605,
+        "kinetic_angular": 27.38857000889195,
+        "total_kinetic": 45.617827586505555,
+        "external_potential": -210.06477655323354,
+        "hartree": 95.23711337503222,
+        "exchange": -14.361643196710208,
+        "correlation": -0.8539186112310554,
+        "nonlocal_psp": -32.35344319888775,
+        "total_potential": -162.39666818503034,
+        "total_energy": -116.77884059852478
+      },
+      "total_energy_ha": -116.77884059852478,
+      "occupied_state_count": 4,
+      "occupied_eigenvalues_ha": [
+        -3.4550774746362944,
+        -2.2065344849988726,
+        -0.2758011737372274,
+        -0.19448185127968712
+      ],
+      "lowest_5_unoccupied_eigs_ha": [],
+      "atom_dataset_path": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/date_pseudo/GGA_PBE/Fe/data/atom_dataset.json",
+      "solver_finite_element_number": 10,
+      "solve_wall_time_sec": 0.4908430319992476
+    },
+    {
+      "configuration": "configuration_005_Mn",
+      "element": "Mn",
+      "atomic_number": 25,
+      "n_electrons": 25.0,
+      "converged": true,
+      "energies_ha": {
+        "kinetic_radial": 16.635081754604744,
+        "kinetic_angular": 27.105295596526123,
+        "total_kinetic": 43.74037735113087,
+        "external_potential": -201.32190322946994,
+        "hartree": 83.87891019783656,
+        "exchange": -15.72783116063929,
+        "correlation": -0.8683024089234108,
+        "nonlocal_psp": -15.067265421555877,
+        "total_potential": -149.10639202275192,
+        "total_energy": -105.36601467162106
+      },
+      "total_energy_ha": -105.36601467162106,
+      "occupied_state_count": 4,
+      "occupied_eigenvalues_ha": [
+        -3.156010077422485,
+        -2.0062648443155435,
+        -0.2488337730007255,
+        -0.18768631507230848
+      ],
+      "lowest_5_unoccupied_eigs_ha": [],
+      "atom_dataset_path": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/date_pseudo/GGA_PBE/Mn/data/atom_dataset.json",
+      "solver_finite_element_number": 10,
+      "solve_wall_time_sec": 0.6021381710015703
+    },
+    {
+      "configuration": "configuration_006_Mo",
+      "element": "Mo",
+      "atomic_number": 42,
+      "n_electrons": 42.0,
+      "converged": true,
+      "energies_ha": {
+        "kinetic_radial": 8.549720167535297,
+        "kinetic_angular": 12.920941858808026,
+        "total_kinetic": 21.470662026343323,
+        "external_potential": -148.23295677352988,
+        "hartree": 55.97249784230288,
+        "exchange": -9.272005143853853,
+        "correlation": -0.6860500511578276,
+        "nonlocal_psp": 11.068423170434508,
+        "total_potential": -91.15009095580416,
+        "total_energy": -69.67942892946084
+      },
+      "total_energy_ha": -69.67942892946084,
+      "occupied_state_count": 4,
+      "occupied_eigenvalues_ha": [
+        -2.3647132194732357,
+        -1.414321338229812,
+        -0.1379223058474553,
+        -0.15018149874438844
+      ],
+      "lowest_5_unoccupied_eigs_ha": [],
+      "atom_dataset_path": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/date_pseudo/GGA_PBE/Mo/data/atom_dataset.json",
+      "solver_finite_element_number": 10,
+      "solve_wall_time_sec": 0.5115570900015882
+    },
+    {
+      "configuration": "configuration_007_Cs",
+      "element": "Cs",
+      "atomic_number": 55,
+      "n_electrons": 55.0,
+      "converged": true,
+      "energies_ha": {
+        "kinetic_radial": 3.07049920664265,
+        "kinetic_angular": 1.9730029972041891,
+        "total_kinetic": 5.043502203846839,
+        "external_potential": -39.91784273774071,
+        "hartree": 16.07160693190585,
+        "exchange": -6.127868288260905,
+        "correlation": -0.5567645550112881,
+        "nonlocal_psp": 2.2375252089651223,
+        "total_potential": -28.293343440141932,
+        "total_energy": -23.249841236295094
+      },
+      "total_energy_ha": -23.249841236295094,
+      "occupied_state_count": 3,
+      "occupied_eigenvalues_ha": [
+        -0.9823892842326221,
+        -0.49678804203064225,
+        -0.07666972569295545
+      ],
+      "lowest_5_unoccupied_eigs_ha": [],
+      "atom_dataset_path": "/mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/date_pseudo/GGA_PBE/Cs/data/atom_dataset.json",
+      "solver_finite_element_number": 10,
+      "solve_wall_time_sec": 0.4753298529976746
+    }
+  ]
+}

@@ -1392,7 +1392,7 @@ class AtomicDFTSolver:
         print("*                       PI: Phanish Suryanarayana                         *")
         print("*               List of contributors: See the documentation               *")
         print("*         Citation: See README.md or the documentation for details        *")
-        print("*                Acknowledgements: U.S. DOE SC (DE-SC0019410)             *")
+        print("*                Acknowledgements: U.S. DOE SC (DE-SC0023445)             *")
         print("===========================================================================")
 
 
@@ -1498,6 +1498,11 @@ class AtomicDFTSolver:
             )
 
         return grid_data_standard, grid_data_dense, grid_data_oep
+
+    @property
+    def xc_requirements(self):
+        """Requirements for the current ``xc_functional`` (e.g. ``needs_tau``, ``needs_gradient``)."""
+        return get_functional_requirements(self.xc_functional)
 
 
     def _initialize_scf_components(
@@ -1622,6 +1627,54 @@ class AtomicDFTSolver:
             settings['outer_max_iter'] = self.max_scf_iterations_outer
         
         return settings
+
+    def _get_initial_orbitals_from_density_with_precursor_xc(
+        self,
+        xc_functional: str,
+        rho_initial: np.ndarray,
+        orbitals_initial: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """
+        Like ``_get_initial_density_and_orbitals_with_warm_start`` but only orbitals: run a
+        single non-self-consistent step at frozen ``rho_initial`` using ``xc_functional``
+        (typically ``'GGA_PBE'``) — build Hartree + XC from that density, diagonalize KS
+        once per ``l``, return occupied orbitals. No density mixing (``inner_max_iter`` is 1
+        and ``rho_tol`` is ``inf`` so the driver exits after one pass). If ``orbitals_initial``
+        is already provided, it is returned unchanged.
+        """
+        assert isinstance(xc_functional, str), \
+            XC_FUNCTIONAL_TYPE_ERROR_MESSAGE.format(type(xc_functional))
+        assert xc_functional in VALID_XC_FUNCTIONAL_LIST, \
+            XC_FUNCTIONAL_NOT_IN_VALID_LIST_ERROR.format(VALID_XC_FUNCTIONAL_LIST, xc_functional)
+        if orbitals_initial is not None:
+            return orbitals_initial
+
+        settings: Dict[str, Any] = {
+            "inner_max_iter": 1,
+            "outer_max_iter": 1,
+            "rho_tol"       : float("inf"),
+            "outer_rho_tol" : float("inf"),
+            "n_consecutive" : 1,
+            "verbose"       : False,
+        }
+        eigensolver_prec = EigenSolver(xc_functional=xc_functional)
+        scf_driver_prec = SCFDriver(
+            hamiltonian_builder     = self.scf_driver.hamiltonian_builder,
+            density_calculator      = self.scf_driver.density_calculator,
+            poisson_solver          = self.scf_driver.poisson_solver,
+            eigensolver             = eigensolver_prec,
+            mixer                   = self.scf_driver.mixer,
+            occupation_info         = self.scf_driver.occupation_info,
+            xc_functional           = xc_functional,
+            spin_polarized_flag     = self.spin_polarized_flag,
+            hybrid_mixing_parameter = self.scf_driver.hybrid_mixing_parameter,
+        )
+        scf_result_prec = scf_driver_prec.run(
+            rho_initial      = rho_initial,
+            settings         = settings,
+            orbitals_initial = None,
+        )
+        return scf_result_prec.orbitals
 
 
     def _evaluate_basis_on_uniform_grid(
@@ -1998,8 +2051,10 @@ class AtomicDFTSolver:
         use_warm_start : bool, optional
             If True (default), run the optional GGA_PBE warm-start
             pre-calculation for SCAN / RSCAN / R2SCAN and for OEP functionals.
-            Set to False to skip warm start and use ``rho_initial`` / ``orbitals_initial``
-            directly when entering the main SCF cycle.
+            If False, ``rho_initial`` is left as-is; when the functional ``needs_tau`` and
+            no ``orbitals_initial`` is given, one non-self-consistent precursor-XC
+            diagonalization at that density is still run
+            (``_get_initial_orbitals_from_density_with_precursor_xc``) for τ.
         evaluate_basis_on_uniform_grid : bool, optional
             If True, interpolate orbitals and local XC potentials (and,
             when ``save_energy_density`` is True, energy densities) onto the
@@ -2077,12 +2132,22 @@ class AtomicDFTSolver:
 
         # Warm start calculation for relatively expensive meta-GGA functionals
         if use_warm_start and (
-            self.xc_functional in ['SCAN', 'RSCAN', 'R2SCAN'] or self.use_oep
+            self.xc_functional in ['SCAN', 'RSCAN', 'R2SCAN', 'HF', 'PBE0', 'EXX'] or self.use_oep
         ):
             rho_initial, orbitals_for_scf = self._get_initial_density_and_orbitals_with_warm_start(
                 xc_functional    = "GGA_PBE", 
                 rho_initial      = rho_initial, 
                 orbitals_initial = orbitals_for_scf)
+        elif (
+            not use_warm_start
+            and orbitals_for_scf is None
+            and self.xc_requirements.needs_tau
+        ):
+            orbitals_for_scf = self._get_initial_orbitals_from_density_with_precursor_xc(
+                xc_functional    = "GGA_PBE",
+                rho_initial      = rho_initial,
+                orbitals_initial = None,
+            )
 
         # Phase 2: Run SCF
         scf_result : SCFResult = self.scf_driver.run(

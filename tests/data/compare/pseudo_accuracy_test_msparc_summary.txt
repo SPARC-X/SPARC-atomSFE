@@ -1,119 +1,119 @@
 Pseudo valence dataset vs M-SPARC (reference/pseudo) - four functionals
 
-repo_root: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta
+repo_root: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta
 
 ==============================================================================
 XC = LDA_SVWN
 ==============================================================================
-summary: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta\atom\tests\data\summary\pseudo\lda_svwn\configuration_energy_summary.json
-reference: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta\atom\tests\data\reference\pseudo\msparc_atoms_lda_svwn.json
-repo root (for atom_dataset): C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta
+summary: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atomSFE/tests/data/summary/pseudo/lda_svwn/configuration_energy_summary.json
+reference: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atomSFE/tests/data/reference/pseudo/msparc_atoms_lda_svwn.json
+repo root (for atom_dataset): /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta
 date_pseudo folder: LDA_SVWN
 
 El      Z     dE_tot (Ha)      max|d eps|     mean|d eps|  n_orb  match   
 --------------------------------------------------------------------------
-He      2   -6.191708e-07    3.127095e-07    3.127095e-07      1  n,l     
-N       7   -1.600190e-06    2.736254e-07    2.198651e-07      2  n,l     
-O       8   -2.856403e-07    4.338194e-07    3.230233e-07      2  n,l     
-Fe     26   -5.838429e-07    7.407152e-08    5.524510e-08      4  n,l     
-Mn     25   -1.391808e-06    2.575707e-07    9.769052e-08      4  n,l     
-Mo     42   -1.189250e-06    2.418147e-07    1.636079e-07      4  n,l     
-Cs     55    4.967883e-06    3.339505e-05    3.003118e-05      3  n,l     
+He      2   -2.970819e-07    1.524737e-07    1.524737e-07      1  n,l     
+N       7   -1.914552e-06    6.719611e-07    6.125263e-07      2  n,l     
+O       8   -4.913314e-07    7.374736e-07    5.465687e-07      2  n,l     
+Fe     26   -3.689797e-07    3.839170e-08    3.084453e-08      4  n,l     
+Mn     25    7.139343e-07    2.118856e-07    6.859546e-08      4  n,l     
+Mo     42    6.144187e-07    1.697835e-07    1.044910e-07      4  n,l     
+Cs     55    9.249634e-07    2.366311e-07    1.311797e-07      3  n,l     
 --------------------------------------------------------------------------
 
 Aggregate (this XC)
-  max  |dE_tot|   = 4.967883e-06 Ha
-  mean |dE_tot|   = 1.519684e-06 Ha
-  max  max|d eps| = 3.339505e-05 Ha
-  mean max|d eps| = 4.998380e-06 Ha
-  mean mean|d eps| = 4.457618e-06 Ha
+  max  |dE_tot|   = 1.914552e-06 Ha
+  mean |dE_tot|   = 7.607517e-07 Ha
+  max  max|d eps| = 7.374736e-07 Ha
+  mean max|d eps| = 3.169429e-07 Ha
+  mean mean|d eps| = 2.352399e-07 Ha
 
 
 ==============================================================================
 XC = GGA_PBE
 ==============================================================================
-summary: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta\atom\tests\data\summary\pseudo\gga_pbe\configuration_energy_summary.json
-reference: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta\atom\tests\data\reference\pseudo\msparc_atoms_gga_pbe.json
-repo root (for atom_dataset): C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta
+summary: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atomSFE/tests/data/summary/pseudo/gga_pbe/configuration_energy_summary.json
+reference: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atomSFE/tests/data/reference/pseudo/msparc_atoms_gga_pbe.json
+repo root (for atom_dataset): /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta
 date_pseudo folder: GGA_PBE
 
 El      Z     dE_tot (Ha)      max|d eps|     mean|d eps|  n_orb  match   
 --------------------------------------------------------------------------
-He      2    2.640357e-07    2.346802e-07    2.346802e-07      1  n,l     
-N       7   -3.030780e-06    6.626365e-07    5.274832e-07      2  n,l     
-O       8    1.657495e-06    6.524095e-07    4.295364e-07      2  n,l     
-Fe     26    9.286322e-08    8.199498e-08    2.772068e-08      4  n,l     
-Mn     25    1.826653e-06    4.180455e-07    2.534469e-07      4  n,l     
-Mo     42   -1.790905e-06    1.820109e-07    8.742095e-08      4  n,l     
-Cs     55    9.148733e-07    1.590909e-07    8.917951e-08      3  n,l     
+He      2   -3.019629e-07    4.847165e-07    4.847165e-07      1  n,l     
+N       7   -1.975040e-06    9.629141e-07    6.479768e-07      2  n,l     
+O       8   -1.504449e-07    7.413245e-07    5.733301e-07      2  n,l     
+Fe     26   -2.846623e-07    4.022900e-07    1.850246e-07      4  n,l     
+Mn     25    1.126231e-06    5.273348e-07    3.542279e-07      4  n,l     
+Mo     42    1.955196e-07    2.946470e-07    1.457259e-07      4  n,l     
+Cs     55    1.073622e-06    2.389517e-07    2.115011e-07      3  n,l     
 --------------------------------------------------------------------------
 
 Aggregate (this XC)
-  max  |dE_tot|   = 3.030780e-06 Ha
-  mean |dE_tot|   = 1.368229e-06 Ha
-  max  max|d eps| = 6.626365e-07 Ha
-  mean max|d eps| = 3.415526e-07 Ha
-  mean mean|d eps| = 2.356383e-07 Ha
+  max  |dE_tot|   = 1.975040e-06 Ha
+  mean |dE_tot|   = 7.296404e-07 Ha
+  max  max|d eps| = 9.629141e-07 Ha
+  mean max|d eps| = 5.217398e-07 Ha
+  mean mean|d eps| = 3.717861e-07 Ha
 
 
 ==============================================================================
 XC = RSCAN
 ==============================================================================
-summary: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta\atom\tests\data\summary\pseudo\rscan\configuration_energy_summary.json
-reference: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta\atom\tests\data\reference\pseudo\msparc_atoms_rscan.json
-repo root (for atom_dataset): C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta
+summary: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atomSFE/tests/data/summary/pseudo/rscan/configuration_energy_summary.json
+reference: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atomSFE/tests/data/reference/pseudo/msparc_atoms_rscan.json
+repo root (for atom_dataset): /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta
 date_pseudo folder: rSCAN
 
 El      Z     dE_tot (Ha)      max|d eps|     mean|d eps|  n_orb  match   
 --------------------------------------------------------------------------
-He      2   -1.411667e-08    7.695579e-08    7.695579e-08      1  n,l     
-N       7    3.684792e-07    3.005637e-07    2.440273e-07      2  n,l     
-O       8    1.639425e-06    5.815409e-07    3.354969e-07      2  n,l     
-Fe     26   -5.952220e-06    2.431651e-06    1.676915e-06      4  n,l     
-Mn     25   -8.627211e-07    2.169160e-07    1.558461e-07      4  n,l     
-Mo     42    5.008279e-07    4.291002e-07    2.794515e-07      4  n,l     
-Cs     55   -1.144716e-05    6.495858e-05    2.513948e-05      3  n,l     
+He      2   -1.068675e-08    6.606668e-08    6.606668e-08      1  n,l     
+N       7    3.369320e-07    3.028035e-07    2.237555e-07      2  n,l     
+O       8    1.469807e-06    5.789381e-07    3.129735e-07      2  n,l     
+Fe     26   -5.709979e-06    2.525198e-06    1.725084e-06      4  n,l     
+Mn     25   -1.384282e-06    3.855646e-07    2.698731e-07      4  n,l     
+Mo     42   -9.922273e-08    3.857144e-07    2.686572e-07      4  n,l     
+Cs     55    1.461368e-05    2.231059e-04    8.148867e-05      3  n,l     
 --------------------------------------------------------------------------
 
 Aggregate (this XC)
-  max  |dE_tot|   = 1.144716e-05 Ha
-  mean |dE_tot|   = 2.969279e-06 Ha
-  max  max|d eps| = 6.495858e-05 Ha
-  mean max|d eps| = 9.856472e-06 Ha
-  mean mean|d eps| = 3.986882e-06 Ha
+  max  |dE_tot|   = 1.461368e-05 Ha
+  mean |dE_tot|   = 3.374942e-06 Ha
+  max  max|d eps| = 2.231059e-04 Ha
+  mean max|d eps| = 3.247860e-05 Ha
+  mean mean|d eps| = 1.205073e-05 Ha
 
 
 ==============================================================================
 XC = PBE0
 ==============================================================================
-summary: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta\atom\tests\data\summary\pseudo\pbe0\configuration_energy_summary.json
-reference: C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta\atom\tests\data\reference\pseudo\msparc_atoms_pbe0.json
-repo root (for atom_dataset): C:\Users\10404\OneDrive\Desktop\DFT\delta_learning\delta
+summary: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atomSFE/tests/data/summary/pseudo/pbe0/configuration_energy_summary.json
+reference: /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta/atomSFE/tests/data/reference/pseudo/msparc_atoms_pbe0.json
+repo root (for atom_dataset): /mnt/c/Users/10404/OneDrive/Desktop/DFT/delta_learning/delta
 date_pseudo folder: PBE0
 
 El      Z     dE_tot (Ha)      max|d eps|     mean|d eps|  n_orb  match   
 --------------------------------------------------------------------------
-He      2    3.509581e-06    2.486832e-06    2.486832e-06      1  n,l     
-N       7    7.065843e-06    2.588074e-06    1.872926e-06      2  n,l     
-O       8    2.054267e-05    3.670950e-06    3.131473e-06      2  n,l     
-Fe     26    1.433614e-04    9.563883e-06    5.992282e-06      4  n,l     
-Mn     25    1.302585e-04    8.157999e-06    5.398757e-06      4  n,l     
-Mo     42    6.701861e-05    4.120683e-06    2.522692e-06      4  n,l     
-Cs     55    1.846224e-05    2.974262e-06    2.086046e-06      3  n,l     
+He      2    2.939084e-06    1.884163e-06    1.884163e-06      1  n,l     
+N       7    8.121540e-06    3.108777e-06    2.278432e-06      2  n,l     
+O       8    1.870833e-05    3.775997e-06    3.074239e-06      2  n,l     
+Fe     26    1.429838e-04    9.612551e-06    6.087711e-06      4  n,l     
+Mn     25    1.295448e-04    8.256728e-06    5.495565e-06      4  n,l     
+Mo     42    6.899842e-05    3.842018e-06    2.451120e-06      4  n,l     
+Cs     55    1.861984e-05    3.060968e-06    1.999255e-06      3  n,l     
 --------------------------------------------------------------------------
 
 Aggregate (this XC)
-  max  |dE_tot|   = 1.433614e-04 Ha
-  mean |dE_tot|   = 5.574555e-05 Ha
-  max  max|d eps| = 9.563883e-06 Ha
-  mean max|d eps| = 4.794669e-06 Ha
-  mean mean|d eps| = 3.355858e-06 Ha
+  max  |dE_tot|   = 1.429838e-04 Ha
+  mean |dE_tot|   = 5.570226e-05 Ha
+  max  max|d eps| = 9.612551e-06 Ha
+  mean max|d eps| = 4.791600e-06 Ha
+  mean mean|d eps| = 3.324355e-06 Ha
 
 
 ==============================================================================
 Global (all four XCs, all compared elements)
 ==============================================================================
-  max  |dE_tot|   = 1.433614e-04 Ha
-  mean |dE_tot|   = 1.540069e-05 Ha
-  max  max|d eps| = 6.495858e-05 Ha
-  mean max|d eps| = 4.997768e-06 Ha
+  max  |dE_tot|   = 1.429838e-04 Ha
+  mean |dE_tot|   = 1.514190e-05 Ha
+  max  max|d eps| = 2.231059e-04 Ha
+  mean max|d eps| = 9.527221e-06 Ha

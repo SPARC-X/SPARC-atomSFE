@@ -71,3 +71,25 @@ Thumbs.db
 # Jupyter Book build outputs
 _build/              # Ignore _build in project root (shouldn't be created, but just in case)
 docs/_build/         # Build output in docs/
+
+# LaTeX build artifacts (tests/paper/): track .tex and .pdf only
+tests/paper/**/*.aux
+tests/paper/**/*.bbl
+tests/paper/**/*.blg
+tests/paper/**/*.bcf
+tests/paper/**/*.fdb_latexmk
+tests/paper/**/*.fls
+tests/paper/**/*.log
+tests/paper/**/*.out
+tests/paper/**/*.run.xml
+tests/paper/**/*.synctex.gz
+tests/paper/**/*.toc
+tests/paper/**/*.nav
+tests/paper/**/*.snm
+tests/paper/**/*.vrb
+tests/paper/**/*.xdv
+tests/paper/**/*.lof
+tests/paper/**/*.lot
+tests/paper/**/*.ilg
+tests/paper/**/*.idx
+tests/paper/**/*.ind

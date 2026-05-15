@@ -6,6 +6,14 @@ import re
 
 np.set_printoptions(threshold=sys.maxsize)
 
+# -----------------------------------------------------------------------------
+# Sync note (Georgia Tech psp8 reader vs earlier delta snapshot):
+# The nonlocal cutoff ``rc_temp`` assignment (see ``+ 10`` below) matches the
+# reference reader you pasted: 10 radial mesh points *outward* from the first index
+# where |projector| < 1e-8. An older copy in this repo used ``[0][0] - 1`` (one point
+# inward, slightly smaller ``rc_temp`` / ``rc_max_list``).
+# -----------------------------------------------------------------------------
+
 ''' 
 @brief    READPSEUDOPOT reads the pseudopotential file (psp8 format).
 
@@ -158,7 +166,9 @@ def read_pseudopotential_file(
                 r_indx = r_indx_all[0][-1]
                 for i in range(np.shape(Pot[l]['proj'])[1]):
                     try:
-                        rc_temp = r[r_indx +np.where(np.absolute(Pot[l]['proj'][r_indx+1:,i])<(1e-8))[0][0] - 1]
+                        # GT reader: +10 mesh-point buffer past first |proj| < 1e-8 (see module note above).
+                        # Diff vs old delta: was ``... [0][0] - 1``.
+                        rc_temp = r[r_indx +np.where(np.absolute(Pot[l]['proj'][r_indx+1:,i])<(1e-8))[0][0]+10]
                     except:
                         rc_temp = r[-1]
                     if rc_temp>rc_max:
