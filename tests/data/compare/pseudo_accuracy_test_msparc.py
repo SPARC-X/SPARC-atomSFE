@@ -1,5 +1,5 @@
 """
-Compare ``tests/data/summary/pseudo/<xc>/configuration_energy_summary.json``
+Compare ``tests/data/summary/pseudo_potential/<xc>/fe*_R*__*.json``
 against ``tests/data/reference/pseudo/msparc_atoms_*.json`` for four functionals
 (LDA_SVWN, GGA_PBE, RSCAN, PBE0).
 
@@ -23,12 +23,18 @@ from typing import Any
 
 import numpy as np
 
+import sys
+
 _DATA_DIR = Path(__file__).resolve().parent.parent
+if str(_DATA_DIR) not in sys.path:
+    sys.path.insert(0, str(_DATA_DIR))
+from summary_naming import default_pseudo_summary
+
 _COMPARE_DIR = Path(__file__).resolve().parent
 _DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_OUT_TXT = _COMPARE_DIR / "pseudo_accuracy_test_msparc_summary.txt"
 
-# (summary subdir under tests/data/summary/pseudo, M-SPARC reference filename, date_pseudo folder name)
+# (summary subdir under tests/data/summary/pseudo_potential, M-SPARC reference filename, date_pseudo folder name)
 _CASES: tuple[tuple[str, str, str], ...] = (
     ("lda_svwn", "msparc_atoms_lda_svwn.json", "LDA_SVWN"),
     ("gga_pbe", "msparc_atoms_gga_pbe.json", "GGA_PBE"),
@@ -161,7 +167,7 @@ def _run_one_case(
     date_pseudo_xc: str,
     repo_root: Path,
 ) -> tuple[str, list[dict[str, Any]]]:
-    summary_path = _DATA_DIR / "summary" / "pseudo" / summary_subdir / "configuration_energy_summary.json"
+    summary_path = default_pseudo_summary(_DATA_DIR, summary_subdir)
     ref_path = _DATA_DIR / "reference" / "pseudo" / ref_name
     notes: list[str] = []
     if not summary_path.is_file():
@@ -257,7 +263,7 @@ def _run_one_case(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Compare summary/pseudo configuration_energy_summary vs reference/pseudo M-SPARC JSON."
+        description="Compare summary/pseudo_potential fe*_R*__*.json vs reference/pseudo M-SPARC JSON."
     )
     ap.add_argument(
         "--repo-root",

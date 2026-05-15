@@ -6,6 +6,13 @@
 ----------------
 May 15, 2026
 Name: Qihao Cheng
+Changes: (tests/data/summary/, tests/data/summary_naming.py, tests/data/compare/, tests/data/README.md, tests/data/build_summary_from_out.py)
+1. Rename committed summary JSON files to `{fe##}_R###__z1_92.json` (or `__charged` / `__z{N}c`); add `summary_naming.py` for mesh/Z suffix helpers.
+2. Update compare scripts and docs to read `summary/all_electron/` and `summary/pseudo_potential/` with the new glob; legacy `configuration_energy_summary.json` still supported in sweep case dirs.
+
+----------------
+May 15, 2026
+Name: Qihao Cheng
 Changes: (README.md, docs/README.md, src/solver.py, psps/SPMS/, psps/SG15/, psps/README.md)
 1. Update DOE Office of Science grant number from DE-SC0019410 to DE-SC0023445 in acknowledgements.
 2. Add pseudopotential libraries under `psps/SPMS/` (LDA) and `psps/SG15/` (rSCAN); document XC-to-folder mapping in `psps/README.md`.

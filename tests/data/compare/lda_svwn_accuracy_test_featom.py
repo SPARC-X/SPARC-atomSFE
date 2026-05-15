@@ -3,7 +3,7 @@ Compare ATOM LDA_SVWN summary against FEATOM reference JSON.
 
 Default comparison:
 - Reference: tests/data/reference/lda_svwn/featom_atoms_lda.json
-- Ours:      tests/data/summary/lda_svwn/finite_element_sweep/fe12_R040/configuration_energy_summary.json
+- Ours:      tests/data/summary/all_electron/lda_svwn/fe12_R040__z1_92.json
 
 Outputs a text report in this folder:
     lda_svwn_accuracy_test_featom_summary.txt
@@ -19,16 +19,15 @@ from pathlib import Path
 
 import numpy as np
 
+import sys
+
 _DATA_DIR = Path(__file__).resolve().parent.parent
+if str(_DATA_DIR) not in sys.path:
+    sys.path.insert(0, str(_DATA_DIR))
+from summary_naming import default_all_electron_summary
+
 _DEFAULT_REFERENCE = _DATA_DIR / "reference" / "lda_svwn" / "featom_atoms_lda.json"
-_DEFAULT_SUMMARY = (
-    _DATA_DIR
-    / "summary"
-    / "lda_svwn"
-    / "finite_element_sweep"
-    / "fe12_R040"
-    / "configuration_energy_summary.json"
-)
+_DEFAULT_SUMMARY = default_all_electron_summary(_DATA_DIR, "lda_svwn")
 _DEFAULT_OUT_TXT = Path(__file__).resolve().parent / "lda_svwn_accuracy_test_featom_summary.txt"
 
 

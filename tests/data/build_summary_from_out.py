@@ -1,10 +1,12 @@
 """Build per-dataset summary JSON files from configuration out.txt logs.
 
 Output layout mirrors dataset directories:
-  <base-dir>/summary/<functional>/<sweep>/<dataset>/configuration_energy_summary.json
+  <base-dir>/summary/<functional>/<sweep>/<dataset>/fe12_R040__z1_92.json
 
-Two-part dataset roots (no sweep/case folder) are also supported, e.g. ``hf/charged``
-from ``generate_dataset.py`` (writes ``summary/hf/charged/configuration_energy_summary.json``).
+Filenames are ``{fe##}_R###__z1_92.json`` (or ``__charged`` for charged subsets), derived from
+``input_parameters`` unless ``--output-name`` is set.
+
+Two-part dataset roots (no sweep/case folder) are also supported, e.g. ``hf/charged``.
 
 For each configuration, this script extracts:
 1) energy components from the final "Total Energy (...)" block in out.txt
@@ -33,6 +35,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+
+from summary_naming import summary_basename_from_payload
 import sys
 from pathlib import Path
 from typing import Any
@@ -402,8 +406,8 @@ def main() -> None:
     parser.add_argument(
         "--output-name",
         type=str,
-        default="configuration_energy_summary.json",
-        help="Filename for per-dataset summary JSON.",
+        default=None,
+        help="Override summary JSON basename (default: auto, e.g. fe12_R040__z1_92.json).",
     )
     parser.add_argument(
         "--dry-run",
@@ -417,7 +421,7 @@ def main() -> None:
     mode = "DRY-RUN" if args.dry_run else "WRITE"
     print(f"[{mode}] base_dir={base_dir}")
     print(f"[{mode}] summary_root={summary_root}")
-    print(f"[{mode}] output_name={args.output_name}")
+    print(f"[{mode}] output_name={args.output_name or '(auto)'}")
     written = 0
     print(f"[{mode}] Streaming dataset discovery and summary writing...")
     for i, dataset_dir in enumerate(_iter_dataset_dirs(base_dir), start=1):
@@ -432,14 +436,15 @@ def main() -> None:
             )
             continue
 
-        out_path = summary_root / rel_dataset / args.output_name
+        dataset_summary = _build_dataset_summary(dataset_dir)
+        out_name = args.output_name or summary_basename_from_payload(dataset_summary, rel_dataset)
+        out_path = summary_root / rel_dataset / out_name
         _print_live_status(
             prefix   = "DATASET",
             rel_path = rel_dataset.as_posix(),
             index    = i,
             total    = i,
         )
-        dataset_summary = _build_dataset_summary(dataset_dir)
         _clear_live_status_line()
         print(
             f"[DATASET {i}] summarized "

@@ -1,7 +1,6 @@
 """Pseudo GGA-PBE sweep convergence test: max error vs finest reference.
 
-Reads ``configuration_energy_summary.json`` under
-``summary/pseudo/gga_pbe/<sweep>/<case>/`` and plots domain-radius vs
+Reads ``fe*_R*__*.json`` under ``summary/pseudo_potential/gga_pbe/<sweep>/<case>/`` and plots domain-radius vs
 finite-element panels.
 
 Run::
@@ -14,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -21,8 +21,12 @@ import numpy as np
 from matplotlib.ticker import LogFormatterMathtext, LogLocator, MultipleLocator
 
 _DATA_DIR = Path(__file__).resolve().parent.parent
+if str(_DATA_DIR) not in sys.path:
+    sys.path.insert(0, str(_DATA_DIR))
+from summary_naming import glob_sweep_summaries
+
 _SUMMARY_DIR = _DATA_DIR / "summary"
-_DEFAULT_GGA_PBE_ROOT = _SUMMARY_DIR / "pseudo" / "gga_pbe"
+_DEFAULT_GGA_PBE_ROOT = _SUMMARY_DIR / "pseudo_potential" / "gga_pbe"
 
 plt.rcParams.update(
     {
@@ -65,7 +69,7 @@ def _per_atom_metrics(payload: dict) -> dict[str, tuple[float, np.ndarray]]:
 
 def _build_curve(mode: str, gga_pbe_root: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     sweep_dir = gga_pbe_root / mode
-    files = sorted(sweep_dir.glob("*/configuration_energy_summary.json"))
+    files = glob_sweep_summaries(sweep_dir)
     if not files:
         raise RuntimeError(f"No summary files found in {sweep_dir}")
 

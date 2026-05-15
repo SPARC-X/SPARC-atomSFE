@@ -1,12 +1,12 @@
 r"""
-HF accuracy check: literature reference (``reference/hf``) vs run summaries (``summary/hf``).
+HF accuracy check: literature reference (``reference/hf``) vs run summaries (``summary/all_electron/hf``).
 
 Loads Cinal (2020) closed-(sub)shell reference from ``lehtola_closed_subshell_atoms_hf.json``:
 ``minus_E_tot_au``, ``minus_epsilon_homo_au``, ``minus_E_x_au`` follow
 ``reference/hf/README.md`` (stored positive magnitudes for $-E_{\mathrm{tot}}$,
 $-\varepsilon_{\mathrm{HOMO}}$, $-E_{\mathrm{x}}$).
 
-Loads ``configuration_energy_summary.json`` for one HF case and compares per $Z$:
+Loads ``fe12_R040__z1_92.json`` (or sweep-case summary) for one HF case and compares per $Z$:
 total energy, HOMO (= ``max(occupied_eigenvalues_ha)``), and HF exchange
 (``energies_ha.hf_exchange``, falling back to ``energies_ha.exchange``).
 Non-converged configurations are skipped.
@@ -15,8 +15,8 @@ Writes a detailed text report to ``--out-txt`` and prints the same summary to st
 
 Run from ``delta/``::
 
-    python atom/tests/data/compare/hf_accuracy_test_neural_lehtola.py
-    python atom/tests/data/compare/hf_accuracy_test_neural_lehtola.py --case domain_radius_sweep/fe12_R040 --out-txt path/to/report.txt
+    python atomSFE/tests/data/compare/hf_accuracy_test_neural_lehtola.py
+    python atomSFE/tests/data/compare/hf_accuracy_test_neural_lehtola.py --case finite_element_sweep/fe12_R040 --out-txt path/to/report.txt
 """
 
 from __future__ import annotations
@@ -29,10 +29,16 @@ from pathlib import Path
 
 import numpy as np
 
+import sys
+
 _DATA_DIR = Path(__file__).resolve().parent.parent
+if str(_DATA_DIR) not in sys.path:
+    sys.path.insert(0, str(_DATA_DIR))
+from summary_naming import resolve_summary_under
+
 _DEFAULT_REFERENCE = _DATA_DIR / "reference" / "hf" / "lehtola_closed_subshell_atoms_hf.json"
-_DEFAULT_SUMMARY_HF = _DATA_DIR / "summary" / "hf"
-_DEFAULT_CASE = "finite_element_sweep/fe12_R040"
+_DEFAULT_SUMMARY_HF = _DATA_DIR / "summary" / "all_electron" / "hf"
+_DEFAULT_CASE = ""
 
 # Text report: ``g`` with alternate form ``#`` keeps trailing zeros while using
 # significant-digit rules (see format mini-language: ``#`` + ``g``).
@@ -246,15 +252,15 @@ def main() -> None:
         "--summary-hf-root",
         type=Path,
         default=_DEFAULT_SUMMARY_HF,
-        help="Root containing case subdirs (default: tests/data/summary/hf).",
+        help="Root containing HF summary JSON (default: tests/data/summary/all_electron/hf).",
     )
     ap.add_argument(
         "--case",
         type=str,
         default=_DEFAULT_CASE,
         help=(
-            "Path under --summary-hf-root with configuration_energy_summary.json "
-            f"(default: {_DEFAULT_CASE})."
+            "Optional subpath under --summary-hf-root (sweep case dir or empty for flat JSON). "
+            f"(default: {repr(_DEFAULT_CASE)})."
         ),
     )
     ap.add_argument(
@@ -270,10 +276,8 @@ def main() -> None:
         print(f"Missing reference file: {ref_path}", file=sys.stderr)
         sys.exit(1)
 
-    summary_json = (args.summary_hf_root.resolve() / Path(args.case)).resolve() / (
-        "configuration_energy_summary.json"
-    )
-    if not summary_json.is_file():
+    summary_json = resolve_summary_under(args.summary_hf_root.resolve(), args.case)
+    if summary_json is None or not summary_json.is_file():
         print(f"Missing summary file: {summary_json}", file=sys.stderr)
         sys.exit(1)
 

@@ -3,7 +3,7 @@ HF charged-set accuracy: Lehtola (2019) Table 5 reference vs run summary.
 
 Loads ``reference/hf/lehtola_charged_atoms_hf.json`` (``E_fem_au``, ``E_erkale_au``,
 ``E_gaussian_au``; see ``reference/hf/README.md``) and
-``configuration_energy_summary.json`` under ``summary/hf/<case>/``.
+``fe12_R040__charged.json`` under ``summary/all_electron/hf/charged/`` (or sweep case dir).
 
 Configurations are paired **by index** with the reference ``records`` list, in the
 same order as ``generate_dataset.py`` (``HF_CHARGED_*_LIST``). A mismatch in
@@ -18,8 +18,8 @@ Non-converged configurations are skipped in aggregates (same spirit as
 
 Run from ``delta/``::
 
-    python atom/tests/data/compare/hf_accuracy_test_charged_lehtola.py
-    python atom/tests/data/compare/hf_accuracy_test_charged_lehtola.py --case charged --out-txt path/to/report.txt
+    python atomSFE/tests/data/compare/hf_accuracy_test_charged_lehtola.py
+    python atomSFE/tests/data/compare/hf_accuracy_test_charged_lehtola.py --case charged --out-txt path/to/report.txt
 """
 
 from __future__ import annotations
@@ -305,14 +305,14 @@ def main() -> None:
         "--summary-hf-root",
         type=Path,
         default=_DEFAULT_SUMMARY_HF,
-        help="Root containing case subdirs (default: tests/data/summary/hf).",
+        help="Root containing HF summaries (default: tests/data/summary/all_electron/hf).",
     )
     ap.add_argument(
         "--case",
         type=str,
         default=_DEFAULT_CASE,
         help=(
-            "Path under --summary-hf-root with configuration_energy_summary.json "
+            "Subpath under --summary-hf-root (e.g. charged/ for flat fe12_R040__charged.json). "
             f"(default: {_DEFAULT_CASE})."
         ),
     )
@@ -329,10 +329,8 @@ def main() -> None:
         print(f"Missing reference file: {ref_path}", file=sys.stderr)
         sys.exit(1)
 
-    summary_json = (args.summary_hf_root.resolve() / Path(args.case)).resolve() / (
-        "configuration_energy_summary.json"
-    )
-    if not summary_json.is_file():
+    summary_json = resolve_summary_under(args.summary_hf_root.resolve(), args.case)
+    if summary_json is None or not summary_json.is_file():
         print(f"Missing summary file: {summary_json}", file=sys.stderr)
         sys.exit(1)
 

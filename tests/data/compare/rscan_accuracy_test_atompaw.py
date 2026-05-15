@@ -3,7 +3,7 @@ Compare SPARC-atomSFE RSCAN summary against ATOMPAW RSCAN reference JSON.
 
 Default comparison:
 - Reference: tests/data/reference/rscan/atompaw_atoms_rscan_dense.json (selected-10 ultradense ATOMPAW mesh)
-- Ours:      tests/data/summary/rscan/finite_element_sweep/fe12_R040/configuration_energy_summary.json
+- Ours:      tests/data/summary/all_electron/rscan/fe12_R040__z1_92.json
 
 Outputs a text report in this folder:
     rscan_accuracy_test_atompaw_summary.txt
@@ -19,16 +19,15 @@ from pathlib import Path
 
 import numpy as np
 
+import sys
+
 _DATA_DIR = Path(__file__).resolve().parent.parent
+if str(_DATA_DIR) not in sys.path:
+    sys.path.insert(0, str(_DATA_DIR))
+from summary_naming import default_all_electron_summary
+
 _DEFAULT_REFERENCE = _DATA_DIR / "reference" / "rscan" / "atompaw_atoms_rscan_dense.json"
-_DEFAULT_SUMMARY = (
-    _DATA_DIR
-    / "summary"
-    / "rscan"
-    / "finite_element_sweep"
-    / "fe12_R040"
-    / "configuration_energy_summary.json"
-)
+_DEFAULT_SUMMARY = default_all_electron_summary(_DATA_DIR, "rscan")
 _DEFAULT_OUT_TXT = Path(__file__).resolve().parent / "rscan_accuracy_test_atompaw_summary.txt"
 
 

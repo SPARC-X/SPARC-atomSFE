@@ -13,8 +13,8 @@ The raw datasets can be very large, so the typical workflow is:
 
 Plotting scripts that **compare** or **convergence-test** sweep results (read under `summary/<functional>/…`) live here:
 
-- `compare/lda_svwn_accuracy_test_featom.py` — FEATOM reference vs LDA_SVWN sweep (per-eigenvalue errors); run with no arguments (reads ``summary/lda_svwn/``, writes ``lda_svwn_accuracy_test_featom.png``).
-- `compare/hf_accuracy_test_neural_lehtola.py` — HF ``summary/hf`` vs ``reference/hf`` closed-subshell reference (total energy, HOMO, exchange); prints detail and writes ``hf_accuracy_test_neural_lehtola_summary.txt`` (see ``--out-txt``).
+- `compare/lda_svwn_accuracy_test_featom.py` — FEATOM reference vs LDA_SVWN sweep (per-eigenvalue errors); run with no arguments (reads ``summary/all_electron/lda_svwn/``, writes ``lda_svwn_accuracy_test_featom.png``).
+- `compare/hf_accuracy_test_neural_lehtola.py` — HF ``summary/all_electron/hf`` vs ``reference/hf`` closed-subshell reference (total energy, HOMO, exchange); prints detail and writes ``hf_accuracy_test_neural_lehtola_summary.txt`` (see ``--out-txt``).
 - `compare/gga_pbe_convergence_test.py` — GGA-PBE sweep convergence test: max energy / eigenvalue error vs the finest reference case.
 
 ---
@@ -79,8 +79,8 @@ python generate_sweep_dataset.py --dry-run
 Extracts summary JSON from each configuration `out.txt`.
 
 - Creates a `summary/` folder under this directory.
-- Mirrors original dataset path to case level:
-  `summary/<functional>/<sweep>/<case>/configuration_energy_summary.json`
+- Mirrors original dataset path to case level; filenames are auto-derived unless overridden:
+  `summary/<functional>/<sweep>/<case>/fe12_R040__z1_92.json` (mesh + Z-range suffix; see `summary_naming.py`)
 - Parses final energy block from `out.txt` and includes:
   - total energy
   - all energy components found in that block
@@ -96,8 +96,8 @@ python tests/data/build_summary_from_out.py --dry-run
 # Write summary JSON files
 python tests/data/build_summary_from_out.py
 
-# Custom output folder and filename
-python tests/data/build_summary_from_out.py --summary-dir-name summary --output-name configuration_energy_summary.json
+# Custom output folder or fixed basename (default: auto fe##_R###__z1_92.json from input_parameters)
+python tests/data/build_summary_from_out.py --summary-dir-name summary --output-name fe12_R040__z1_92.json
 
 # Or run locally from this folder
 cd tests/data

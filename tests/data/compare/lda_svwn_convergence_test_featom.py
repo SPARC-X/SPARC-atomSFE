@@ -6,15 +6,15 @@ Right: fixed $R$, vary $N_{\mathrm{fe}}$ (one curve per FE count).
 
 Reference eigenvalues (Hartree) are listed in ``ref_eigenvalues`` (18 states, same
 ordering as the FEATOM benchmark). Data are read from committed summaries under
-``tests/data/summary/lda_svwn/``: each sweep case folder
+``tests/data/summary/all_electron/lda_svwn/``: each sweep case folder
 ``domain_radius_sweep/fe{fe}_R{rr}/`` or ``finite_element_sweep/...`` contains
-``configuration_energy_summary.json``; the chosen configuration's
+``fe*_R*__*.json``; the chosen configuration's
 ``occupied_eigenvalues_ha`` are compared to the reference.
 
-Run from anywhere (defaults read ``atom/tests/data/summary/lda_svwn/``, write
-``atom/tests/data/compare/lda_svwn_convergence_test_featom_summary.png``; no CLI flags)::
+Run from anywhere (defaults read ``atomSFE/tests/data/summary/all_electron/lda_svwn/``, write
+``atomSFE/tests/data/compare/lda_svwn_convergence_test_featom_summary.png``; no CLI flags)::
 
-    python atom/tests/data/compare/lda_svwn_convergence_test_featom.py
+    python atomSFE/tests/data/compare/lda_svwn_convergence_test_featom.py
 """
 
 from __future__ import annotations
@@ -34,7 +34,11 @@ from matplotlib.ticker import (
 )
 
 _TESTS_DATA = Path(__file__).resolve().parent.parent
-_DEFAULT_LDA_SVWN_ROOT = _TESTS_DATA / "summary" / "lda_svwn"
+if str(_TESTS_DATA) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DATA))
+from summary_naming import summary_path_for_case_dir
+
+_DEFAULT_LDA_SVWN_ROOT = _TESTS_DATA / "summary" / "all_electron" / "lda_svwn"
 _DEFAULT_CONFIGURATION = "configuration_092"
 _DEFAULT_FIXED_FE = 12
 _DEFAULT_FIXED_R = 40
@@ -104,8 +108,8 @@ def parse_case_name(case_dir_name: str) -> tuple[int, int]:
 def read_occupied_eigenvalues_from_case_summary(
     case_dir: Path, configuration: str
 ) -> np.ndarray | None:
-    p = case_dir / "configuration_energy_summary.json"
-    if not p.is_file():
+    p = summary_path_for_case_dir(case_dir)
+    if p is None or not p.is_file():
         return None
     data = json.loads(p.read_text(encoding="utf-8"))
     for row in data.get("config_summaries", []):

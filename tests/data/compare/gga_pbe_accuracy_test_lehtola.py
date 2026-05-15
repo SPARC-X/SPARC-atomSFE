@@ -3,7 +3,7 @@ Compare GGA-PBE finite-element summary against HelFEM reference JSON (even Z sub
 
 Default comparison:
 - Reference: tests/data/reference/gga_pbe/lehtola_even_z_2_to_20_gga_pbe.json
-- Ours:      tests/data/summary/gga_pbe/finite_element_sweep/fe12_R040/configuration_energy_summary.json
+- Ours:      tests/data/summary/all_electron/gga_pbe/fe12_R040__z1_92.json
 
 Outputs a text report in this folder:
     gga_pbe_accuracy_test_lehtola_summary.txt
@@ -23,16 +23,15 @@ from pathlib import Path
 
 import numpy as np
 
+import sys
+
 _DATA_DIR = Path(__file__).resolve().parent.parent
+if str(_DATA_DIR) not in sys.path:
+    sys.path.insert(0, str(_DATA_DIR))
+from summary_naming import default_all_electron_summary
+
 _DEFAULT_REFERENCE = _DATA_DIR / "reference" / "gga_pbe" / "lehtola_even_z_2_to_20_gga_pbe.json"
-_DEFAULT_SUMMARY = (
-    _DATA_DIR
-    / "summary"
-    / "gga_pbe"
-    / "finite_element_sweep"
-    / "fe12_R040"
-    / "configuration_energy_summary.json"
-)
+_DEFAULT_SUMMARY = default_all_electron_summary(_DATA_DIR, "gga_pbe")
 _DEFAULT_OUT_TXT = Path(__file__).resolve().parent / "gga_pbe_accuracy_test_lehtola_summary.txt"
 
 # Aufbau-like occupied subshell order (by l) for low-Z atoms:
