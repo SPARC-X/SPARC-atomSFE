@@ -34,7 +34,8 @@ CONTROL_FILES = {
     "keep_list.txt",
     "cleanup_dataset.py",
     "generate_dataset.py",
-    "generate_sweep_dataset.py",
+    "summary_naming.py",
+    "build_summary_from_out.py",
 }
 
 # Never delete anything under these top-level dirs (even in ``--summary-only``).

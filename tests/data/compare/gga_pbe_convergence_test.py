@@ -23,7 +23,7 @@ from matplotlib.ticker import LogFormatterMathtext, LogLocator, MultipleLocator
 _DATA_DIR = Path(__file__).resolve().parent.parent
 if str(_DATA_DIR) not in sys.path:
     sys.path.insert(0, str(_DATA_DIR))
-from summary_naming import glob_sweep_summaries
+from summary_naming import glob_sweep_summaries, mesh_tag_from_summary_path
 
 _SUMMARY_DIR = _DATA_DIR / "summary"
 _DEFAULT_GGA_PBE_ROOT = _SUMMARY_DIR / "all_electron" / "gga_pbe"
@@ -46,9 +46,9 @@ def _load_dataset_summary(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _parse_x_from_dataset_name(name: str, mode: str) -> float:
-    # name example: fe12_R005
-    fe_txt, r_txt = name.split("_")
+def _parse_x_from_mesh_tag(mesh: str, mode: str) -> float:
+    # mesh example: fe12_R040 (from fe12_R040__z1_92.json or subset_004_fe12_R040/)
+    fe_txt, r_txt = mesh.split("_", 1)
     fe = float(fe_txt.replace("fe", ""))
     r = float(r_txt.replace("R", ""))
     return r if mode == "domain_radius_sweep" else fe
@@ -80,7 +80,7 @@ def _build_curve(
 
     x_and_payload = []
     for p in files:
-        x = _parse_x_from_dataset_name(p.parent.name, mode)
+        x = _parse_x_from_mesh_tag(mesh_tag_from_summary_path(p), mode)
         x_and_payload.append((x, _load_dataset_summary(p)))
     x_and_payload.sort(key=lambda t: t[0])
 

@@ -3,9 +3,15 @@
 This folder contains dataset generation scripts, summary extraction, and cleanup tools.
 The raw datasets can be very large, so the typical workflow is:
 
-1. Generate dataset(s).
-2. Build summary JSON files from `out.txt`.
-3. Keep scripts + summaries, clean heavy raw files when needed.
+1. Generate a **single-case** dataset with `generate_dataset.py` (optional; for new XC presets).
+2. Build or refresh summary JSON from `out.txt` with `build_summary_from_out.py`.
+3. Keep scripts + committed summaries; use `cleanup_dataset.py` on large raw trees when needed.
+
+**Convergence sweeps** (FE / domain-radius panels) are stored as frozen summary JSON under
+`summary/all_electron/<xc>/` and `summary/pseudo_potential/<xc>/` (`finite_element_sweep/`,
+`domain_radius_sweep/`). They are not produced by a script in this folder; regenerate them by
+running `build_summary_from_out.py` against an external batch dataset root if you have the raw
+`configuration_*/out.txt` trees.
 
 ---
 
@@ -46,31 +52,10 @@ python generate_dataset.py --dry-run
 
 ---
 
-### `generate_sweep_dataset.py`
+### `summary_naming.py`
 
-Multi-case generator for finite-element and domain-radius sweeps (discretization batches).
-
-- Supports FE sweep and domain-radius sweep.
-- Supports `use_oep` job selection (`false/true/both`).
-- Writes a multi-entry manifest (`convergence_dataset_manifest.json`).
-
-Common usage:
-
-```bash
-# From repository root
-# Plan only
-python tests/data/generate_sweep_dataset.py --dry-run
-
-# Generate all selected jobs
-python tests/data/generate_sweep_dataset.py --regenerate-data
-
-# Example: both OEP and non-OEP job sets
-python tests/data/generate_sweep_dataset.py --use-oep-options both --regenerate-data
-
-# Or run locally from this folder
-cd tests/data
-python generate_sweep_dataset.py --dry-run
-```
+Shared helpers for summary JSON basenames (`fe12_R040__z1_92.json`, `fe10_R040__z7c.json`, etc.),
+flat sweep layout (no `subset_*` subfolders in `summary/`), and glob paths used by compare scripts.
 
 ---
 
@@ -79,8 +64,9 @@ python generate_sweep_dataset.py --dry-run
 Extracts summary JSON from each configuration `out.txt`.
 
 - Creates a `summary/` folder under this directory.
-- Mirrors original dataset path to case level; filenames are auto-derived unless overridden:
-  `summary/<functional>/<sweep>/<case>/fe12_R040__z1_92.json` (mesh + Z-range suffix; see `summary_naming.py`)
+- Writes flat files under each sweep folder, e.g.
+  `summary/all_electron/gga_pbe/finite_element_sweep/fe12_R040__z1_92.json`
+  (see `summary_naming.py`; `subset_*` dataset dirs collapse to the sweep parent)
 - Parses final energy block from `out.txt` and includes:
   - total energy
   - all energy components found in that block
@@ -173,15 +159,18 @@ Keeps this folder tracked when no data files exist.
 ## Recommended end-to-end workflow
 
 ```bash
-# 1) Generate data
-python tests/data/generate_sweep_dataset.py --regenerate-data
+# 1) Optional: one fixed mesh / Z batch (e.g. new XC)
+python tests/data/generate_dataset.py --dry-run
+python tests/data/generate_dataset.py --regenerate-data
 
-# 2) Build summaries from out.txt
+# 2) Build summaries from out.txt (point --base-dir at raw dataset root if not tests/data)
+python tests/data/build_summary_from_out.py --dry-run
 python tests/data/build_summary_from_out.py
 
-# 3) Preview cleanup strategy
-python tests/data/cleanup_dataset.py --summary-only
+# 3) Convergence figures read committed summary/ only (no regeneration step here)
+python tests/data/compare/gga_pbe_convergence_test.py
 
-# 4) Apply cleanup when confirmed
+# 4) Preview / apply cleanup on large raw trees
+python tests/data/cleanup_dataset.py --summary-only
 python tests/data/cleanup_dataset.py --summary-only --apply
 ```

@@ -1,7 +1,8 @@
 """Build per-dataset summary JSON files from configuration out.txt logs.
 
 Output layout mirrors dataset directories:
-  <base-dir>/summary/<functional>/<sweep>/<dataset>/fe12_R040__z1_92.json
+  <base-dir>/summary/<functional>/<sweep>/fe12_R040__z1_92.json
+  (flat under sweep; no ``subset_*`` subfolder in summary/)
 
 Filenames are ``{fe##}_R###__z1_92.json`` (or ``__charged`` for charged subsets), derived from
 ``input_parameters`` unless ``--output-name`` is set.
@@ -36,7 +37,7 @@ import argparse
 import json
 import re
 
-from summary_naming import summary_basename_from_payload
+from summary_naming import summary_basename_from_payload, summary_output_dir
 import sys
 from pathlib import Path
 from typing import Any
@@ -438,7 +439,7 @@ def main() -> None:
 
         dataset_summary = _build_dataset_summary(dataset_dir)
         out_name = args.output_name or summary_basename_from_payload(dataset_summary, rel_dataset)
-        out_path = summary_root / rel_dataset / out_name
+        out_path = summary_root / summary_output_dir(rel_dataset) / out_name
         _print_live_status(
             prefix   = "DATASET",
             rel_path = rel_dataset.as_posix(),

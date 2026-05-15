@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 SUMMARY_GLOB = "fe*_R*__*.json"
+_SUBSET_CASE_DIR = re.compile(r"^subset_\d+_(?P<mesh>fe\d+_R\d+)$", re.IGNORECASE)
 
 
 def mesh_tag(finite_element_number: int, domain_size: float) -> str:
@@ -24,6 +26,25 @@ def z_suffix(rel_path: Path | str, n_configurations: int) -> str:
 
 def summary_basename(mesh: str, z_part: str) -> str:
     return f"{mesh}__{z_part}.json"
+
+
+def mesh_tag_from_summary_path(path: Path | str) -> str:
+    """Mesh token ``fe12_R040`` from ``fe12_R040__z1_92.json`` or legacy case dir name."""
+    p = Path(path)
+    stem = p.stem if p.suffix else p.name
+    if "__" in stem:
+        return stem.split("__", 1)[0]
+    m = _SUBSET_CASE_DIR.match(stem)
+    if m:
+        return m.group("mesh")
+    return stem
+
+
+def summary_output_dir(rel_dataset: Path) -> Path:
+    """Drop ``subset_NNN_fe.._R..`` leaf so summaries sit directly under the sweep folder."""
+    if rel_dataset.parts and _SUBSET_CASE_DIR.match(rel_dataset.parts[-1]):
+        return Path(*rel_dataset.parts[:-1])
+    return rel_dataset
 
 
 def summary_basename_from_payload(payload: dict[str, Any], rel_path: Path | str) -> str:
@@ -48,9 +69,12 @@ def summary_path_for_case_dir(case_dir: Path) -> Path | None:
 
 
 def glob_sweep_summaries(sweep_dir: Path) -> list[Path]:
-    paths = sorted(sweep_dir.glob(f"*/{SUMMARY_GLOB}"))
-    if paths:
-        return paths
+    flat = sorted(sweep_dir.glob(SUMMARY_GLOB))
+    if flat:
+        return flat
+    nested = sorted(sweep_dir.glob(f"*/{SUMMARY_GLOB}"))
+    if nested:
+        return nested
     return sorted(sweep_dir.glob("*/configuration_energy_summary.json"))
 
 

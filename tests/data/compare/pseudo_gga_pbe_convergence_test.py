@@ -1,6 +1,6 @@
 """Pseudo GGA-PBE sweep convergence test: max error vs finest reference.
 
-Reads ``fe*_R*__*.json`` under ``summary/pseudo_potential/gga_pbe/<sweep>/<case>/`` and plots domain-radius vs
+Reads ``fe*_R*__*.json`` flat under ``summary/pseudo_potential/gga_pbe/<sweep>/`` and plots domain-radius vs
 finite-element panels.
 
 Run::
@@ -23,7 +23,7 @@ from matplotlib.ticker import LogFormatterMathtext, LogLocator, MultipleLocator
 _DATA_DIR = Path(__file__).resolve().parent.parent
 if str(_DATA_DIR) not in sys.path:
     sys.path.insert(0, str(_DATA_DIR))
-from summary_naming import glob_sweep_summaries
+from summary_naming import glob_sweep_summaries, mesh_tag_from_summary_path
 
 _SUMMARY_DIR = _DATA_DIR / "summary"
 _DEFAULT_GGA_PBE_ROOT = _SUMMARY_DIR / "pseudo_potential" / "gga_pbe"
@@ -46,8 +46,8 @@ def _load_dataset_summary(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _parse_x_from_dataset_name(name: str, mode: str) -> float:
-    fe_txt, r_txt = name.split("_")
+def _parse_x_from_mesh_tag(mesh: str, mode: str) -> float:
+    fe_txt, r_txt = mesh.split("_", 1)
     fe = float(fe_txt.replace("fe", ""))
     r = float(r_txt.replace("R", ""))
     return r if mode == "domain_radius_sweep" else fe
@@ -75,7 +75,7 @@ def _build_curve(mode: str, gga_pbe_root: Path) -> tuple[np.ndarray, np.ndarray,
 
     x_and_payload = []
     for p in files:
-        x = _parse_x_from_dataset_name(p.parent.name, mode)
+        x = _parse_x_from_mesh_tag(mesh_tag_from_summary_path(p), mode)
         x_and_payload.append((x, _load_dataset_summary(p)))
     x_and_payload.sort(key=lambda t: t[0])
 

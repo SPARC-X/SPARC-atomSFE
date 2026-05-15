@@ -39,7 +39,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from atom.src.data.data_manager import AtomicDataManager
 
-# --- Solver settings for one dataset (default preset; align like generate_sweep_dataset) ---
+# --- Solver settings for one dataset (default preset) ---
 XC_FUNCTIONAL            = "LDA_SVWN"
 USE_OEP_DEFAULT          = False
 DOMAIN_SIZE              = 40.0
