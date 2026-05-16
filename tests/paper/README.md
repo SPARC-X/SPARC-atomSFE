@@ -80,4 +80,27 @@ Paths below are under `tests/data/` (relative to this `paper/` directory: `../da
 | HF (neutral) | [`reference/all_electron/hf/lehtola_closed_subshell_atoms_hf.json`](../data/reference/all_electron/hf/lehtola_closed_subshell_atoms_hf.json) | [`summary/all_electron/hf/fe12_R040__z1_92.json`](../data/summary/all_electron/hf/fe12_R040__z1_92.json) | [`compare/hf_accuracy_test_neural_lehtola.py`](../data/compare/hf_accuracy_test_neural_lehtola.py) |
 | HF (charged) | [`reference/all_electron/hf/lehtola_charged_atoms_hf.json`](../data/reference/all_electron/hf/lehtola_charged_atoms_hf.json) | [`summary/all_electron/hf/charged/fe12_R040__charged.json`](../data/summary/all_electron/hf/charged/fe12_R040__charged.json) | [`compare/hf_accuracy_test_charged_lehtola.py`](../data/compare/hf_accuracy_test_charged_lehtola.py) |
 
+All-electron RPA-OEP results for He, Be, and Ne are summarized in [`summary/all_electron/rpa_oep/rpa_oep_he_ne_be_summary.json`](../data/summary/all_electron/rpa_oep/rpa_oep_he_ne_be_summary.json).
+
+---
+
+## Pseudopotential accuracy
+
+Comparisons of SPARC-atomSFE against M-SPARC (SPARC-atom) for seven valence atoms (He, N, O, Fe, Mn, Mo, Cs) and four functionals (LDA-SVWN, GGA-PBE, rSCAN, PBE0); violin summary over those cases.
+
+| Item | Path |
+|------|------|
+| TeX | [`accuracy/pseudopotential_accuracy.tex`](accuracy/pseudopotential_accuracy.tex) |
+| Standalone PDF | [`accuracy/pseudopotential_accuracy_standalone.pdf`](accuracy/pseudopotential_accuracy_standalone.pdf) |
+| Figure | [`figures/xc_accuracy_violin_psp.pdf`](figures/xc_accuracy_violin_psp.pdf) |
+
+Paths below are under `tests/data/` (relative to this `paper/` directory: `../data/...`).
+
+| XC functional | Reference data | atomSFE summary | Compare script |
+|---------------|----------------|-----------------|----------------|
+| LDA-SVWN | [`reference/pseudo_potential/msparc_atoms_lda_svwn.json`](../data/reference/pseudo_potential/msparc_atoms_lda_svwn.json) | [`summary/pseudo_potential/lda_svwn/fe10_R040__z7c.json`](../data/summary/pseudo_potential/lda_svwn/fe10_R040__z7c.json) | [`compare/pseudo_accuracy_test_msparc.py`](../data/compare/pseudo_accuracy_test_msparc.py) |
+| GGA-PBE | [`reference/pseudo_potential/msparc_atoms_gga_pbe.json`](../data/reference/pseudo_potential/msparc_atoms_gga_pbe.json) | [`summary/pseudo_potential/gga_pbe/fe10_R040__z7c.json`](../data/summary/pseudo_potential/gga_pbe/fe10_R040__z7c.json) | [`compare/pseudo_accuracy_test_msparc.py`](../data/compare/pseudo_accuracy_test_msparc.py) |
+| rSCAN | [`reference/pseudo_potential/msparc_atoms_rscan.json`](../data/reference/pseudo_potential/msparc_atoms_rscan.json) | [`summary/pseudo_potential/rscan/fe10_R040__z7c.json`](../data/summary/pseudo_potential/rscan/fe10_R040__z7c.json) | [`compare/pseudo_accuracy_test_msparc.py`](../data/compare/pseudo_accuracy_test_msparc.py) |
+| PBE0 | [`reference/pseudo_potential/msparc_atoms_pbe0.json`](../data/reference/pseudo_potential/msparc_atoms_pbe0.json) | [`summary/pseudo_potential/pbe0/fe10_R040__z7c.json`](../data/summary/pseudo_potential/pbe0/fe10_R040__z7c.json) | [`compare/pseudo_accuracy_test_msparc.py`](../data/compare/pseudo_accuracy_test_msparc.py) |
+
 ---

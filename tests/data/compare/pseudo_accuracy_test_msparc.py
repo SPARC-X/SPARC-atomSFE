@@ -1,16 +1,20 @@
 """
-Compare ``tests/data/summary/pseudo_potential/<xc>/fe*_R*__*.json``
-against ``tests/data/reference/pseudo/msparc_atoms_*.json`` for four functionals
-(LDA_SVWN, GGA_PBE, RSCAN, PBE0).
+Compare ``tests/data/summary/pseudo_potential/<xc>/`` flat ``fe*_R*__*.json`` summaries
+against ``tests/data/reference/pseudo_potential/msparc_atoms_*.json`` for four functionals
+(LDA_SVWN, GGA_PBE, rSCAN, PBE0).
 
 Per element:
 - total energy ``Etot`` vs ``total_energy_ha`` from the summary row
-- occupied KS eigenvalues matched on ``(n, l)`` using ``date_pseudo/<XC>/<element>/data/atom_dataset.json``
-  when present under the inferred repo root (``Path(__file__).resolve().parents[4]``); if that file is
+- occupied KS eigenvalues matched on ``(n, l)`` using ``<repo_root>/date_pseudo/<XC>/<element>/data/atom_dataset.json``
+  when present (default ``repo_root`` is the ``delta`` tree four levels above this file); if that file is
   missing, falls back to comparing **sorted** occupied eigenvalue lists (same length only).
 
 Writes:
-    pseudo_accuracy_test_msparc_summary.txt
+    tests/data/compare/pseudo_accuracy_test_msparc_summary.txt
+
+Run::
+
+    python atomSFE/tests/data/compare/pseudo_accuracy_test_msparc.py
 """
 
 from __future__ import annotations
@@ -23,18 +27,18 @@ from typing import Any
 
 import numpy as np
 
-import sys
-
 _DATA_DIR = Path(__file__).resolve().parent.parent
 if str(_DATA_DIR) not in sys.path:
     sys.path.insert(0, str(_DATA_DIR))
 from summary_naming import default_pseudo_summary
 
 _COMPARE_DIR = Path(__file__).resolve().parent
+_REFERENCE_DIR = _DATA_DIR / "reference" / "pseudo_potential"
+# ``delta`` repo root (parent of ``atomSFE/``), where ``date_pseudo/`` lives
 _DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_OUT_TXT = _COMPARE_DIR / "pseudo_accuracy_test_msparc_summary.txt"
 
-# (summary subdir under tests/data/summary/pseudo_potential, M-SPARC reference filename, date_pseudo folder name)
+# (summary XC subdir under summary/pseudo_potential/, M-SPARC reference filename, date_pseudo folder name)
 _CASES: tuple[tuple[str, str, str], ...] = (
     ("lda_svwn", "msparc_atoms_lda_svwn.json", "LDA_SVWN"),
     ("gga_pbe", "msparc_atoms_gga_pbe.json", "GGA_PBE"),
@@ -168,7 +172,7 @@ def _run_one_case(
     repo_root: Path,
 ) -> tuple[str, list[dict[str, Any]]]:
     summary_path = default_pseudo_summary(_DATA_DIR, summary_subdir)
-    ref_path = _DATA_DIR / "reference" / "pseudo" / ref_name
+    ref_path = _REFERENCE_DIR / ref_name
     notes: list[str] = []
     if not summary_path.is_file():
         return f"SKIP {summary_subdir}: missing {summary_path}\n", []
@@ -263,7 +267,10 @@ def _run_one_case(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Compare summary/pseudo_potential fe*_R*__*.json vs reference/pseudo M-SPARC JSON."
+        description=(
+            "Compare summary/pseudo_potential fe*_R*__*.json vs "
+            "reference/pseudo_potential M-SPARC JSON."
+        )
     )
     ap.add_argument(
         "--repo-root",
@@ -276,7 +283,9 @@ def main() -> None:
     repo_root = args.repo_root.resolve()
 
     chunks: list[str] = []
-    chunks.append("Pseudo valence dataset vs M-SPARC (reference/pseudo) - four functionals")
+    chunks.append(
+        "Pseudo valence dataset vs M-SPARC (reference/pseudo_potential) - four functionals"
+    )
     chunks.append("")
     chunks.append(f"repo_root: {repo_root}")
     chunks.append("")

@@ -1,0 +1,212 @@
+{
+  "description": "RPA-OEP all-electron benchmark: He, Ne, Be.",
+  "xc_functional": "RPA",
+  "use_oep": true,
+  "n_atoms": 3,
+  "atoms": [
+    {
+      "label": "He",
+      "symbol": "He",
+      "atomic_number": 2,
+      "n_electrons": 2,
+      "finite_element_number": 20,
+      "input_parameters": {
+        "atomic_number": 2,
+        "n_electrons": 2,
+        "all_electron_flag": true,
+        "xc_functional": "RPA",
+        "use_oep": true,
+        "domain_size": 13.0,
+        "finite_element_number": 20,
+        "polynomial_order": 15,
+        "quadrature_point_number": 55,
+        "oep_basis_number": 4,
+        "mesh_type": "polynomial",
+        "mesh_concentration": 2.0,
+        "mesh_spacing": 0.1,
+        "scf_tolerance": 1e-08,
+        "max_scf_iterations": 500,
+        "max_scf_iterations_outer": 50,
+        "use_pulay_mixing": true,
+        "use_preconditioner": false,
+        "pulay_mixing_parameter": 0.45,
+        "pulay_mixing_history": 11,
+        "pulay_mixing_frequency": 1,
+        "linear_mixing_alpha1": 0.75,
+        "linear_mixing_alpha2": 0.95,
+        "psp_dir_path": null,
+        "psp_file_name": null,
+        "hybrid_mixing_parameter": 1.0,
+        "frequency_quadrature_point_number": 30,
+        "angular_momentum_cutoff": 18,
+        "oep_mixing_parameter": 1.0,
+        "enable_parallelization": true
+      },
+      "ionization_potential_ha": -0.9017858552359523,
+      "energies_ha": {
+        "total_energy": -2.94528412215,
+        "rpa_correlation": -0.08372869331,
+        "exact_exchange_hf": -1.02462703411,
+        "total_kinetic": 2.87216943273,
+        "kinetic_radial": 2.87216943273,
+        "kinetic_angular": 0.0,
+        "external_potential": -6.75835189568,
+        "hartree": 2.04925406822,
+        "total_potential": -5.81745355488
+      },
+      "occupied_eigenvalues": [
+        {
+          "n": 1,
+          "l": 0,
+          "eigenvalue_ha": -0.9017858552359523
+        }
+      ],
+      "eigenvalue_spectrum": {
+        "n_levels": 5681,
+        "homo_eigenvalue_ha": -0.9017858573769209,
+        "lowest_unoccupied_eigenvalue_ha": -0.15730117826525844
+      }
+    },
+    {
+      "label": "Ne",
+      "symbol": "Ne",
+      "atomic_number": 10,
+      "n_electrons": 10,
+      "finite_element_number": 30,
+      "input_parameters": {
+        "atomic_number": 10,
+        "n_electrons": 10,
+        "all_electron_flag": true,
+        "xc_functional": "RPA",
+        "use_oep": true,
+        "domain_size": 13.0,
+        "finite_element_number": 30,
+        "polynomial_order": 15,
+        "quadrature_point_number": 55,
+        "oep_basis_number": 4,
+        "mesh_type": "polynomial",
+        "mesh_concentration": 2.0,
+        "mesh_spacing": 0.1,
+        "scf_tolerance": 1e-08,
+        "max_scf_iterations": 500,
+        "max_scf_iterations_outer": 50,
+        "use_pulay_mixing": true,
+        "use_preconditioner": false,
+        "pulay_mixing_parameter": 0.45,
+        "pulay_mixing_history": 11,
+        "pulay_mixing_frequency": 1,
+        "linear_mixing_alpha1": 0.75,
+        "linear_mixing_alpha2": 0.95,
+        "psp_dir_path": null,
+        "psp_file_name": null,
+        "hybrid_mixing_parameter": 1.0,
+        "frequency_quadrature_point_number": 60,
+        "angular_momentum_cutoff": 40,
+        "oep_mixing_parameter": 1.0,
+        "enable_parallelization": false
+      },
+      "ionization_potential_ha": -0.7961825765502991,
+      "energies_ha": {
+        "total_energy": -129.14646071252,
+        "rpa_correlation": -0.60369117996,
+        "exact_exchange_hf": -12.07825613028,
+        "total_kinetic": 128.63535320718,
+        "kinetic_radial": 110.09210162293,
+        "kinetic_angular": 18.54325158424,
+        "external_potential": -311.11740985641,
+        "hartree": 66.01754324696,
+        "total_potential": -257.7818139197
+      },
+      "occupied_eigenvalues": [
+        {
+          "n": 1,
+          "l": 0,
+          "eigenvalue_ha": -30.827993684365396
+        },
+        {
+          "n": 2,
+          "l": 0,
+          "eigenvalue_ha": -1.6509195829728558
+        },
+        {
+          "n": 2,
+          "l": 1,
+          "eigenvalue_ha": -0.7961825765502991
+        }
+      ],
+      "eigenvalue_spectrum": {
+        "n_levels": 18409,
+        "homo_eigenvalue_ha": -0.7961825552815711,
+        "lowest_unoccupied_eigenvalue_ha": -0.1883071398486429
+      }
+    },
+    {
+      "label": "Be",
+      "symbol": "Be",
+      "atomic_number": 4,
+      "n_electrons": 4,
+      "finite_element_number": 30,
+      "input_parameters": {
+        "atomic_number": 4,
+        "n_electrons": 4,
+        "all_electron_flag": true,
+        "xc_functional": "RPA",
+        "use_oep": true,
+        "domain_size": 13.0,
+        "finite_element_number": 30,
+        "polynomial_order": 15,
+        "quadrature_point_number": 55,
+        "oep_basis_number": 4,
+        "mesh_type": "polynomial",
+        "mesh_concentration": 2.0,
+        "mesh_spacing": 0.1,
+        "scf_tolerance": 1e-08,
+        "max_scf_iterations": 500,
+        "max_scf_iterations_outer": 50,
+        "use_pulay_mixing": true,
+        "use_preconditioner": false,
+        "pulay_mixing_parameter": 0.45,
+        "pulay_mixing_history": 11,
+        "pulay_mixing_frequency": 1,
+        "linear_mixing_alpha1": 0.75,
+        "linear_mixing_alpha2": 0.95,
+        "psp_dir_path": null,
+        "psp_file_name": null,
+        "hybrid_mixing_parameter": 1.0,
+        "frequency_quadrature_point_number": 40,
+        "angular_momentum_cutoff": 18,
+        "oep_mixing_parameter": 1.0,
+        "enable_parallelization": true
+      },
+      "ionization_potential_ha": -0.35577297611570835,
+      "energies_ha": {
+        "total_energy": -14.75445721476,
+        "rpa_correlation": -0.18520194597,
+        "exact_exchange_hf": -2.67821183088,
+        "total_kinetic": 14.60785689929,
+        "kinetic_radial": 14.60785689929,
+        "kinetic_angular": 0.0,
+        "external_potential": -33.75192193646,
+        "hartree": 7.25302159926,
+        "total_potential": -29.36231411405
+      },
+      "occupied_eigenvalues": [
+        {
+          "n": 1,
+          "l": 0,
+          "eigenvalue_ha": -4.3234850672721485
+        },
+        {
+          "n": 2,
+          "l": 0,
+          "eigenvalue_ha": -0.35577297611570835
+        }
+      ],
+      "eigenvalue_spectrum": {
+        "n_levels": 8531,
+        "homo_eigenvalue_ha": -0.3557729640093543,
+        "lowest_unoccupied_eigenvalue_ha": -0.09289702979056824
+      }
+    }
+  ]
+}

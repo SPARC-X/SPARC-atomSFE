@@ -1,8 +1,15 @@
 % Parent preamble: \usepackage{graphicx,amsmath,booktabs} (and caption if floats are customized).
 \setlength{\belowcaptionskip}{6pt}
-\subsection{All-electron Kohn--Sham accuracy}
+\section{All-electron Kohn--Sham accuracy}
 
 We next assess the accuracy of SPARC-atomSFE for all-electron Kohn--Sham DFT calculations through comparisons with literature codes. In particular, we consider four exchange-correlation functionals: LDA, PBE, rSCAN, and HF. For LDA, PBE, and rSCAN, results are compared for ten atoms ranging from light to heavy---H, Be, C, Ne, Na, Si, Fe, Kr, Gd, and U---against the FeAtom code for LDA and the atomPAW code for PBE and rSCAN. For HF, comparisons are carried out for closed-shell neutral atoms against Lehtola \textit{et al.}, and for charged species---anions $\mathrm{H}^{-}$, $\mathrm{Li}^{-}$, $\mathrm{F}^{-}$, $\mathrm{Na}^{-}$, $\mathrm{Cl}^{-}$ and cations $\mathrm{Li}^{+}$, $\mathrm{B}^{+}$, $\mathrm{Na}^{+}$, $\mathrm{Al}^{+}$---against Lehtola \textit{et al.} The distribution of the differences in the results is shown as violin plots in Figure~\ref{fig:ae-xc-accuracy-violin}. We observe that total energies and occupied eigenvalues agree to $10^{-6}$~Ha or better in most cases; the somewhat larger errors observed for PBE and rSCAN can likely be attributed to the accuracy of the atomPAW reference results (as we were unable to converge them further) rather than to SPARC-atomSFE itself, with rSCAN showing slightly worse agreement than PBE. Notably, for LDA, the total energy and eigenvalues of SPARC-atomSFE and FeAtom agree to $10^{-8}$~Ha and $10^{-9}$~Ha, respectively, even for the heaviest atom considered, U ($Z=92$). These results demonstrate the accuracy of SPARC-atomSFE for atomic structure calculations based on all-electron Kohn--Sham DFT.
+
+
+We also assess the accuracy of SPARC-atomSFE for all-electron RPA-OEP calculations, considering the atoms $\mathrm{He}$, $\mathrm{Be}$, and $\mathrm{Ne}$. We employ a polynomial mesh with $s=2$, $R_{\max}=13$~bohr, $p_1=15$, $p_3=4$, and $q=55$; $N_{\mathrm{fe}}$, $l_{\max}$, and $N_\omega$ are $(20,18,30)$, $(30,18,40)$, and $(30,40,60)$ for $\mathrm{He}$, $\mathrm{Be}$, and $\mathrm{Ne}$, respectively, which converges energies and eigenvalues to within $5\times10^{-4}$~Ha. The results agree with the literature to within $10^{-3}$~Ha, which is the accuracy typically sought/attained in such calculations.
+
+
+As supplementary material to the accuracy discussion above, we tabulate the full numerical data underlying Figure~\ref{fig:ae-xc-accuracy-violin} in Tables~\ref{tab:ae-acc-lda-svwn-rep10}, \ref{tab:ae-acc-pbe-rep10}, \ref{tab:ae-acc-rscan-rep10}, \ref{tab:ae-hf-closed-subshell}, and~\ref{tab:ae-hf-charged-unpolarized} (LDA-SVWN, PBE, rSCAN, Hartree--Fock closed-shell, and Hartree--Fock charged species, respectively).
+
 
 \begin{figure}[!htbp]
     \centering
@@ -11,7 +18,6 @@ We next assess the accuracy of SPARC-atomSFE for all-electron Kohn--Sham DFT cal
     \label{fig:ae-xc-accuracy-violin}
 \end{figure}
 
-As supplementary material to the accuracy discussion above, we tabulate the full numerical data underlying Figure~\ref{fig:ae-xc-accuracy-violin}.
 
 \begin{table}[!htbp]
     \centering
@@ -150,3 +156,5 @@ As supplementary material to the accuracy discussion above, we tabulate the full
         \bottomrule
     \end{tabular}
 \end{table}
+
+

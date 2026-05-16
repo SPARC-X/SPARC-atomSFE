@@ -4,50 +4,12 @@
 -changes
 
 ----------------
-May 15, 2026
+May 16, 2026
 Name: Qihao Cheng
-Changes: (tests/data/compare/pseudo_gga_pbe_convergence_test.py, tests/data/compare/pseudo_lda_svwn_convergence_test.py, tests/data/compare/pseudo_rscan_convergence_test.py, tests/data/README.md)
-1. Align pseudo convergence plotters with ``gga_pbe_convergence_test.py`` (PDF, panels, Z=25/51 aggregate skip, ``--highlight-z``, ``--exclude-fe-x``, converged-only rows).
-2. Pseudo LDA keeps ``--exclude-z`` (default 44); add ``pseudo_rscan_convergence_test.py`` for ``summary/pseudo_potential/rscan/``.
-
-----------------
-May 15, 2026
-Name: Qihao Cheng
-Changes: (tests/data/summary/all_electron/{lda_svwn,rscan}/, tests/data/summary/pseudo_potential/{lda_svwn,rscan}/, tests/data/summary_naming.py, tests/data/compare/lda_svwn_convergence_test_featom.py, tests/data/compare/pseudo_lda_svwn_convergence_test.py)
-1. Flatten LDA_SVWN and rSCAN finite_element_sweep / domain_radius_sweep summaries to ``fe##_R###__*.json`` (AE: ``__z1_92``; pseudo LDA: ``__z69c``; pseudo rSCAN: ``__z1_92``).
-2. Extend ``mesh_tag_from_summary_path`` for legacy ``subset_*/configuration_energy_summary.json``; update FEATOM and pseudo LDA convergence scripts for flat sweep files.
-
-----------------
-May 15, 2026
-Name: Qihao Cheng
-Changes: (tests/data/compare/rscan_convergence_test.py, tests/data/README.md)
-1. Add ``rscan_convergence_test.py``: two-panel max-error convergence vs finest case for all-electron rSCAN sweeps (PDF).
-
-----------------
-May 15, 2026
-Name: Qihao Cheng
-Changes: (tests/data/compare/lda_svwn_convergence_test.py, tests/data/README.md)
-1. Add ``lda_svwn_convergence_test.py``: same convergence panels as ``gga_pbe_convergence_test.py`` for all-electron LDA_SVWN sweeps (PDF output).
-
-----------------
-May 15, 2026
-Name: Qihao Cheng
-Changes: (tests/data/generate_sweep_dataset.py removed, tests/data/README.md, tests/data/cleanup_dataset.py)
-1. Remove ``generate_sweep_dataset.py``; convergence sweeps are maintained as committed ``summary/`` JSON, refreshed via ``build_summary_from_out.py`` on external batch data when needed.
-
-----------------
-May 15, 2026
-Name: Qihao Cheng
-Changes: (tests/data/summary/, tests/data/summary_naming.py, tests/data/compare/, tests/data/README.md, tests/data/build_summary_from_out.py)
-1. Rename committed summary JSON files to `{fe##}_R###__z1_92.json` (or `__charged` / `__z{N}c`); add `summary_naming.py` for mesh/Z suffix helpers.
-2. Update compare scripts and docs to read `summary/all_electron/` and `summary/pseudo_potential/` with the new glob; legacy `configuration_energy_summary.json` still supported in sweep case dirs.
-
-----------------
-May 15, 2026
-Name: Qihao Cheng
-Changes: (README.md, docs/README.md, src/solver.py, psps/SPMS/, psps/SG15/, psps/README.md)
+Changes: (README.md, docs/README.md, src/solver.py, psps/SPMS/, psps/SG15/, psps/README.md, tests/)
 1. Update DOE Office of Science grant number from DE-SC0019410 to DE-SC0023445 in acknowledgements.
 2. Add pseudopotential libraries under `psps/SPMS/` (LDA) and `psps/SG15/` (rSCAN); document XC-to-folder mapping in `psps/README.md`.
+3. Update `tests/`: reorganize committed convergence summaries, extend compare/plot scripts for AE and pseudo sweeps, and refresh supplementary paper material and docs.
 
 
 ----------------

@@ -1,0 +1,24 @@
+% Build (from this directory; requires figures/ PDFs):
+%   latexmk -pdf supplement_material.tex
+% or: pdflatex supplement_material.tex && pdflatex supplement_material.tex
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{geometry}
+\usepackage{import}
+\usepackage{placeins}
+\geometry{margin=1in}
+
+\begin{document}
+    \subimport{schrodinger/}{z92_hydrogenic.tex}
+    \FloatBarrier
+    \subimport{convergence/}{all_electron_convergence.tex}
+    \FloatBarrier
+    \subimport{convergence/}{pseudopotential_convergence.tex}
+    \FloatBarrier
+    \subimport{accuracy/}{all_electron_accuracy.tex}
+    \FloatBarrier
+    \subimport{accuracy/}{pseudopotential_accuracy.tex}
+\end{document}
