@@ -6,7 +6,7 @@ LaTeX fragments, figures, and matching tests for the SPARC-atomSFE paper. Each t
 
 ## Radial Schrödinger
 
-Verifies the spectral finite-element framework for the all-electron radial Schrödinger equation by comparing occupied eigenvalues for neutral uranium to hydrogenic reference energies, with errors below 0.1 nano-Hartree.
+Verifies the spectral finite-element framework for the all-electron radial Schrödinger equation by comparing occupied eigenvalues for neutral Z=92 to hydrogenic reference energies, with errors below 0.1 nano-Hartree.
 
 | Item | Path |
 |------|------|
