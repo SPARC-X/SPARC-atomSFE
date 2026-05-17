@@ -6,6 +6,7 @@
 # SPARC-atomSFE — Atomic DFT with Spectral Finite Elements
 
 ![build](https://img.shields.io/badge/build-passing-brightgreen)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 
 [**Features**](#features)
