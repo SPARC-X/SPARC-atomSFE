@@ -1335,7 +1335,7 @@ class AtomicDFTSolver:
         # Be careful! This output can also be used to initialize the AtomicDFTSolver from output files!
         #     So, do not change the format of this output! Or if you want to change, please update the from_output_file method!
         print("===========================================================================")
-        print("*                  SPARC-atomSFE  (version May 16, 2026)                  *")
+        print("*                  SPARC-atomSFE  (version May 26, 2026)                  *")
         print("*   Copyright (c) 2026 Material Physics & Mechanics Group, Georgia Tech   *")
         print("*           Distributed under GNU General Public License 3 (GPL)          *")
         print("*                   Start time: {}                  *".format(get_sparc_time_string())) # Do not change the length for this line
