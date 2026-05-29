@@ -762,8 +762,8 @@ class SCFResult:
         Kohn-Sham eigenvalues (orbital energies) for all states, shape (n_states,)
 
     orbitals : np.ndarray
-        Converged Kohn-Sham orbitals (radial wavefunctions R_nl(r))
-        Shape: (n_states, n_quad_points)
+        Converged Kohn-Sham orbitals (radial wavefunctions R_nl(r)) on the
+        quadrature grid. Shape ``(n_quad_points, n_occupied)`` .
 
     density_data : DensityData
         Converged electron density and related quantities (rho, grad_rho, tau)
@@ -798,6 +798,14 @@ class SCFResult:
     total_energy : float, optional
         Total energy of the system
 
+    symmetrize : bool, optional
+        Whether the inner SCF used the symmetrized eigenproblem. Drives uniform-grid
+        orbital interpolation in ``AtomicDFTSolver.solve`` (coefficients vs quadrature).
+
+    orbital_coefficients : np.ndarray, optional
+        FE nodal coefficients for occupied states before boundary padding,
+        shape ``(n_global_fe_dofs - 1, n_occupied)``. Set from ``occ_eigenvectors``.
+
     energy_components : dict, optional
         Breakdown of energy components (kinetic, Hartree, XC, etc.)
     """
@@ -813,19 +821,23 @@ class SCFResult:
     rho_residual   : float
     
     # Outer loop info (optional)
-    full_eigen_energies : Optional[np.ndarray] = None
-    full_orbitals       : Optional[np.ndarray] = None
-    full_l_terms        : Optional[np.ndarray] = None
+    full_eigen_energies  : Optional[np.ndarray] = None
+    full_orbitals        : Optional[np.ndarray] = None
+    full_l_terms         : Optional[np.ndarray] = None
     
-    outer_iterations    : Optional[int]   = None
-    outer_converged     : Optional[bool]  = None
+    outer_iterations     : Optional[int]   = None
+    outer_converged      : Optional[bool]  = None
     
     # Energy info (optional)
-    total_energy        : Optional[float] = None
-    energy_components   : Optional[dict]  = field(default=None)
-    
+    total_energy         : Optional[float] = None
+    energy_components    : Optional[dict]  = field(default=None)
+
+    # Other information accelerating post-processing
+    symmetrize           : Optional[bool] = None
+    orbital_coefficients : Optional[np.ndarray] = None
+
     # Intermediate information (optional, for debugging)
-    intermediate_info   : Optional[IntermediateInfo] = None
+    intermediate_info    : Optional[IntermediateInfo] = None
     
     def __post_init__(self):
         # type check for required fields
@@ -867,55 +879,49 @@ class SCFResult:
         if self.intermediate_info is not None:
             assert isinstance(self.intermediate_info, IntermediateInfo), \
                 "parameter 'intermediate_info' must be an IntermediateInfo instance, get type {} instead".format(type(self.intermediate_info))
+        if self.symmetrize is not None:
+            assert isinstance(self.symmetrize, bool), \
+                SYMMETRIZE_TYPE_ERROR.format(type(self.symmetrize))
+        if self.orbital_coefficients is not None:
+            assert isinstance(self.orbital_coefficients, np.ndarray), \
+                "parameter 'orbital_coefficients' must be a numpy array, get type {} instead".format(type(self.orbital_coefficients))
 
 
     @classmethod
     def from_dict(cls, result_dict: dict) -> SCFResult:
         """
-        Create SCFResult from dictionary
-        
-        Parameters
-        ----------
-        result_dict : dict
-            Dictionary containing results
-            
-        Returns
-        -------
-        SCFResult
-            Result object
+        Create SCFResult from a dictionary produced by :meth:`to_dict`.
         """
         return cls(
-            eigenvalues         = result_dict['eigenvalues'],
-            eigenvectors        = result_dict['eigenvectors'],
-            rho                 = result_dict['rho'],
-            converged           = result_dict['converged'],
-            iterations          = result_dict['iterations'],
-            residual            = result_dict['residual'],
-            full_eigen_energies = result_dict.get('full_eigen_energies'),
-            full_orbitals       = result_dict.get('full_orbitals'),
-            full_l_terms        = result_dict.get('full_l_terms'),
-            outer_iterations    = result_dict.get('outer_iterations'),
-            outer_converged     = result_dict.get('outer_converged'),
-            total_energy        = result_dict.get('total_energy'),
-            energy_components   = result_dict.get('energy_components')
+            eigen_energies       = result_dict['eigen_energies'],
+            orbitals             = result_dict['orbitals'],
+            density_data         = result_dict['density_data'],
+            converged            = result_dict['converged'],
+            iterations           = result_dict['iterations'],
+            rho_residual         = result_dict['rho_residual'],
+            full_eigen_energies  = result_dict.get('full_eigen_energies'),
+            full_orbitals        = result_dict.get('full_orbitals'),
+            full_l_terms         = result_dict.get('full_l_terms'),
+            outer_iterations     = result_dict.get('outer_iterations'),
+            outer_converged      = result_dict.get('outer_converged'),
+            total_energy         = result_dict.get('total_energy'),
+            energy_components    = result_dict.get('energy_components'),
+            symmetrize           = result_dict.get('symmetrize'),
+            orbital_coefficients = result_dict.get('orbital_coefficients'),
+            intermediate_info    = result_dict.get('intermediate_info'),
         )
     
     def to_dict(self) -> dict:
         """
-        Convert to dictionary format
-        
-        Returns
-        -------
-        dict
-            Dictionary representation of results
+        Convert to dictionary format (serialization-friendly).
         """
         result = {
-            'eigenvalues' : self.eigenvalues,
-            'eigenvectors': self.eigenvectors,
-            'rho'         : self.rho,
-            'converged'   : self.converged,
-            'iterations'  : self.iterations,
-            'residual'    : self.residual
+            'eigen_energies' : self.eigen_energies,
+            'orbitals'       : self.orbitals,
+            'density_data'   : self.density_data,
+            'converged'      : self.converged,
+            'iterations'     : self.iterations,
+            'rho_residual'   : self.rho_residual,
         }
         
         # Add optional fields if present
@@ -933,46 +939,37 @@ class SCFResult:
             result['total_energy'] = self.total_energy
         if self.energy_components is not None:
             result['energy_components'] = self.energy_components
+        if self.symmetrize is not None:
+            result['symmetrize'] = self.symmetrize
+        if self.orbital_coefficients is not None:
+            result['orbital_coefficients'] = self.orbital_coefficients
+        if self.intermediate_info is not None:
+            result['intermediate_info'] = self.intermediate_info
             
         return result
     
     def summary(self) -> str:
         """
-        Get a summary string of the SCF results
-        
-        Returns
-        -------
-        str
-            Summary of results
+        Get a summary string of the SCF results.
         """
         lines = [
-            "=" * 60,
-            "SCF Results Summary",
-            "=" * 60,
-            f"Inner SCF converged: {self.converged}",
-            f"Inner iterations: {self.iterations}",
-            f"Final residual: {self.residual:.6e}",
+            "=" * 75,
+            "SCF Results Summary".center(75),
+            "=" * 75,
+            f"\t SCF converged                    : {self.converged}",
+            f"\t Number of outer/inner iterations : {self.iterations}",
+            f"\t Final rho residual               : {self.rho_residual:.3e}",
+            f"\t Occupied KS orbitals             : {len(self.eigen_energies)}",
+            f"\t HOMO energy                      : {float(np.max(self.eigen_energies)):.8f} Ha",
+            f"\t symmetrize                       : {self.symmetrize}",
+            f"\t orbital_coefficients             : {'available' if self.orbital_coefficients is not None else 'None'}",
+            f"\t density_data                     : {'available' if self.density_data is not None else 'None'}",
+            f"\t full_eigen_energies              : {'available' if self.full_eigen_energies is not None else 'None'}",
+            f"\t full_orbitals                    : {'available' if self.full_orbitals is not None else 'None'}",
+            f"\t full_l_terms                     : {'available' if self.full_l_terms is not None else 'None'}",
+            f"\t intermediate_info                : {'available' if self.intermediate_info is not None else 'None'}",
+            "=" * 75,
         ]
-        
-        if self.outer_iterations is not None:
-            lines.extend([
-                f"Outer SCF converged: {self.outer_converged}",
-                f"Outer iterations: {self.outer_iterations}",
-            ])
-        
-        if self.total_energy is not None:
-            lines.append(f"Total energy: {self.total_energy:.10f} Ha")
-        
-        if self.energy_components is not None:
-            lines.append("\nEnergy components:")
-            for key, value in self.energy_components.items():
-                lines.append(f"  {key}: {value:.10f} Ha")
-        
-        lines.extend([
-            f"Number of states: {len(self.eigenvalues)}",
-            f"Lowest eigenvalue: {self.eigenvalues[0]:.6f} Ha",
-            "=" * 60
-        ])
         
         return "\n".join(lines)
 
@@ -1852,16 +1849,18 @@ class SCFDriver:
         
 
         result = SCFResult(
-            eigen_energies      = occ_eigenvalues,
-            orbitals            = occ_orbitals,
-            density_data        = final_density_data,
-            converged           = converged,
-            iterations          = iteration + 1,
-            rho_residual        = residual,
-            full_eigen_energies = full_eigen_energies,
-            full_orbitals       = full_orbitals,
-            full_l_terms        = full_l_terms,
-            intermediate_info   = intermediate_info,
+            eigen_energies       = occ_eigenvalues,
+            orbitals             = occ_orbitals,
+            density_data         = final_density_data,
+            converged            = converged,
+            iterations           = iteration + 1,
+            rho_residual         = residual,
+            full_eigen_energies  = full_eigen_energies,
+            full_orbitals        = full_orbitals,
+            full_l_terms         = full_l_terms,
+            symmetrize           = symmetrize,
+            orbital_coefficients = occ_eigenvectors,
+            intermediate_info    = intermediate_info,
         )
 
         return result
@@ -2021,16 +2020,18 @@ class SCFDriver:
             self.outer_convergence_checker.print_footer(outer_converged, outer_iterations)
         
         outer_result = SCFResult(
-            eigen_energies      = inner_result.eigen_energies,
-            orbitals            = inner_result.orbitals,
-            density_data        = inner_result.density_data,
-            converged           = outer_converged,
-            iterations          = outer_iterations,
-            rho_residual        = outer_residual,
-            full_eigen_energies = inner_result.full_eigen_energies,
-            full_orbitals       = inner_result.full_orbitals,
-            full_l_terms        = inner_result.full_l_terms,
-            intermediate_info   = intermediate_info,
+            eigen_energies       = inner_result.eigen_energies,
+            orbitals             = inner_result.orbitals,
+            density_data         = inner_result.density_data,
+            converged            = outer_converged,
+            iterations           = outer_iterations,
+            rho_residual         = outer_residual,
+            full_eigen_energies  = inner_result.full_eigen_energies,
+            full_orbitals        = inner_result.full_orbitals,
+            full_l_terms         = inner_result.full_l_terms,
+            symmetrize           = inner_result.symmetrize,
+            orbital_coefficients = inner_result.orbital_coefficients,
+            intermediate_info    = intermediate_info,
         )
 
         return outer_result

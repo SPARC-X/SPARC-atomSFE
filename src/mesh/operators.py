@@ -7,8 +7,6 @@ from dataclasses import dataclass
 
 MATRIX_ASSEMBLY_DTYPE = np.float64
 
-
-
 # Error messages
 NUMBER_OF_FINITE_ELEMENTS_NOT_GREATER_THAN_0_ERROR = \
     "parameter 'number_of_finite_elements' must be greater than 0, get {} instead."
@@ -73,8 +71,13 @@ GIVEN_GRID_NOT_WITHIN_PHYSICAL_NODES_ERROR = \
     "The given grid must be within the physical nodes."
 FIELD_VALUES_NDIM_ERROR_MESSAGE = \
     "parameter 'field_values' must be a 1D array, get dimension {} instead."
+FIELD_VALUES_2D_NDIM_ERROR_MESSAGE = \
+    "parameter 'field_values' must be a 2D array with shape (n_elem * n_quad, n_fields), get dimension {} instead."
 FIELD_VALUES_SHAPE_ERROR_MESSAGE = \
     "parameter 'field_values' shape {} does not match number_of_finite_elements * quadrature_node_number shape {}."
+
+ORBITAL_COEFFICIENTS_SHAPE_ERROR_MESSAGE = \
+    "parameter 'field_values' (here the orbital coefficients) length {} does not match number of FE nodes excluding boundary nodes shape {}."
 
 
 # Warning messages
@@ -845,6 +848,25 @@ class RadialOperatorsBuilder:
         return interp_matrix
 
 
+    def get_lagrange_basis_pseudoinverse(self) -> np.ndarray:
+        """
+        Compute the pseudoinverse of the Lagrange basis for each finite element.
+        """
+        if hasattr(self, "_lagrange_basis_pseudoinverse"):
+            return self._lagrange_basis_pseudoinverse
+        
+        lagrange_basis_pseudoinverse = np.zeros(
+            (self.finite_element_number, self.physical_node_number, self.quadrature_node_number)
+        )
+        for elem_idx in range(self.finite_element_number):
+            lagrange_basis_pseudoinverse[elem_idx, :, :] = np.linalg.pinv(self.lagrange_basis[elem_idx])
+
+        self._lagrange_basis_pseudoinverse = lagrange_basis_pseudoinverse
+
+        return lagrange_basis_pseudoinverse
+
+
+
     def assemble_poisson_rhs_vector_no_bc(self, rho: np.ndarray) -> np.ndarray:
         """
         Assemble the right-hand side vector for the Poisson equation.
@@ -1158,6 +1180,35 @@ class RadialOperatorsBuilder:
         return rows_primary, cols_primary
 
 
+    def _build_basis_on_arbitrary_grid_dict(self, given_grid: np.ndarray) -> Dict[int, np.ndarray]:
+        """
+        Evaluate Lagrange basis functions on arbitrary grid points, per element.
+
+        Only elements that contain at least one point in ``given_grid`` appear in the
+        returned dict (coarse uniform meshes may leave many elements out).
+
+        Returns
+        -------
+        dict[int, np.ndarray]
+            Keys are finite-element indices. Values have shape (1, n_points_in_element, n_basis).
+        """
+
+        # Internal helper: callers validate ``given_grid`` before calling.
+        basis_on_arbitrary_grid_dict: Dict[int, np.ndarray] = {}
+        for elem_idx in range(self.finite_element_number):
+            idx_uniform = (
+                (given_grid >= self.physical_nodes_reshaped[elem_idx:elem_idx + 1, 0])
+                & (given_grid <= self.physical_nodes_reshaped[elem_idx:elem_idx + 1, -1])
+            )
+            if not np.any(idx_uniform):
+                continue
+            basis_func_in_current_element, _ = LagrangeShapeFunctions.lagrange_basis_and_derivatives(
+                x_node = self.physical_nodes_reshaped[elem_idx:elem_idx + 1, :],
+                x_eval = given_grid[idx_uniform],
+            )
+            basis_on_arbitrary_grid_dict[elem_idx] = basis_func_in_current_element
+        return basis_on_arbitrary_grid_dict
+
 
     @property
     def H_kinetic(self) -> np.ndarray:
@@ -1196,12 +1247,170 @@ class RadialOperatorsBuilder:
         Used for HF/PBE0 calculations.
         """
         return self.get_global_interpolation_matrix()
+    
+    @property
+    def lagrange_basis_pseudoinverse(self) -> np.ndarray:
+        return self.get_lagrange_basis_pseudoinverse()
+
+
+
+    @property
+    def grid_data(self) -> GridData:
+        """
+        Property accessor for grid data.
+        Used for response function calculation, etc.
+        """
+        return GridData(
+            finite_element_number = self.finite_element_number,
+            physical_nodes        = self.physical_nodes,
+            quadrature_nodes      = self.quadrature_nodes,
+            quadrature_weights    = self.quadrature_weights,
+        )
+
+
+    def evaluate_orbitals_on_arbitrary_grid(
+        self,
+        given_grid                   : np.ndarray,
+        orbital_coefficients         : np.ndarray,
+        basis_on_arbitrary_grid_dict : Optional[Dict[int, np.ndarray]] = None,
+    ) -> np.ndarray:
+        """
+        Interpolate FE nodal orbital coefficients onto an arbitrary grid.
+
+        Use when SCF eigenvectors are stored as global FE node coefficients
+        (``symmetrize=False`` path). For quadrature-point orbitals, use
+        ``evaluate_quantites_on_arbitrary_grid`` instead.
+
+        Parameters
+        ----------
+        given_grid : np.ndarray, shape (n_points,)
+            Monotonically increasing points within the physical domain.
+        orbital_coefficients : np.ndarray
+            Shape ``(n_global_fe_dofs - 1, n_orbitals)`` before internal padding.
+        basis_on_arbitrary_grid_dict : dict[int, np.ndarray], optional
+            Precomputed basis from ``_build_basis_on_arbitrary_grid_dict``.
+
+        Returns
+        -------
+        np.ndarray, shape (n_points, n_orbitals)
+            Orbitals sampled on ``given_grid``.
+        """
+        # Validate input: grid must be monotonically increasing
+        assert np.all(np.diff(given_grid) > 0.0), \
+            GIVEN_GRID_NOT_MONOTONICALLY_INCREASING_ERROR
+
+        # Validate input: grid must be within physical domain
+        assert np.all(given_grid >= self.physical_nodes[0]) and \
+               np.all(given_grid <= self.physical_nodes[-1]), \
+            GIVEN_GRID_NOT_WITHIN_PHYSICAL_NODES_ERROR
+            
+        # Validate input: FE nodal coefficients (unpadded global dof count)
+        assert orbital_coefficients.shape[0] == (self.finite_element_number * (self.physical_node_number - 1) - 1), \
+            ORBITAL_COEFFICIENTS_SHAPE_ERROR_MESSAGE.format(orbital_coefficients.shape[0], (self.finite_element_number * (self.physical_node_number - 1) - 1))
+
+        if basis_on_arbitrary_grid_dict is None:
+            basis_on_arbitrary_grid_dict = self._build_basis_on_arbitrary_grid_dict(given_grid)
+
+
+        orbital_coefficients = np.pad(orbital_coefficients, ((1, 1), (0, 0)))
+        n_elem = self.finite_element_number
+        n_basis = self.physical_node_number
+
+        orbitals_arbitrary_grid = np.zeros((len(given_grid), orbital_coefficients.shape[1]))
+        for elem_idx in range(n_elem):
+            idx_FE = np.arange(elem_idx * (n_basis - 1), (elem_idx + 1) * (n_basis - 1) + 1)
+            idx_uniform = (
+                (given_grid >= self.physical_nodes_reshaped[elem_idx:elem_idx + 1, 0])
+                & (given_grid <= self.physical_nodes_reshaped[elem_idx:elem_idx + 1, -1])
+            )
+            if not np.any(idx_uniform):
+                continue
+            orbitals_arbitrary_grid[idx_uniform, :] = (
+                basis_on_arbitrary_grid_dict[elem_idx][0, :, :] @ orbital_coefficients[idx_FE, :]
+            )
+        return orbitals_arbitrary_grid
+
+
+    def evaluate_quantites_on_arbitrary_grid(
+        self,
+        given_grid                   : np.ndarray,
+        field_values                 : np.ndarray,
+        basis_on_arbitrary_grid_dict : Optional[Dict[int, np.ndarray]] = None,
+    ) -> np.ndarray:
+        """
+        Evaluate quadrature-point fields on an arbitrary grid.
+
+        For each finite element, quadrature values are mapped to nodal coefficients
+        via the cached Lagrange-basis pseudoinverse, then interpolated to
+        ``given_grid`` using precomputed basis values on that grid.
+
+        Parameters
+        ----------
+        given_grid : np.ndarray, shape (n_points,)
+            Monotonically increasing evaluation points within the physical domain.
+        field_values : np.ndarray, shape (n_elem * n_quad, n_fields)
+            Field values at global quadrature points. Use ``field[:, None]`` for a
+            single field.
+        basis_on_arbitrary_grid_dict : dict[int, np.ndarray], optional
+            Precomputed Lagrange basis on ``given_grid``, keyed by element index.
+            Each value has shape ``(1, n_points_in_element, n_basis)``.
+            If ``None``, the basis is built internally for this call.
+            Pass the dict from ``_build_basis_on_arbitrary_grid_dict`` to avoid
+            rebuilding when evaluating multiple fields on the same grid.
+
+        Returns
+        -------
+        np.ndarray, shape (n_points, n_fields)
+            Field values interpolated onto ``given_grid``.
+        """
+        # Validate input: grid must be monotonically increasing
+        assert np.all(np.diff(given_grid) > 0.0), \
+            GIVEN_GRID_NOT_MONOTONICALLY_INCREASING_ERROR
+
+        # Validate input: grid must be within physical domain
+        assert np.all(given_grid >= self.physical_nodes[0]) and \
+               np.all(given_grid <= self.physical_nodes[-1]), \
+            GIVEN_GRID_NOT_WITHIN_PHYSICAL_NODES_ERROR
+        
+        # Validate input: field values must be a 1D or 2D array with shape (n_elem * n_quad, n_fields)
+        if field_values.ndim == 1:
+            field_values = field_values[:, None]
+        assert field_values.ndim == 2, \
+            FIELD_VALUES_2D_NDIM_ERROR_MESSAGE.format(field_values.ndim)
+        assert field_values.shape[0] == self.finite_element_number * self.quadrature_node_number, \
+            FIELD_VALUES_SHAPE_ERROR_MESSAGE.format(field_values.shape[0], self.finite_element_number * self.quadrature_node_number,)
+
+        n_elem = self.finite_element_number
+        n_quad = self.quadrature_node_number
+        basis_pseudoinverse = self.lagrange_basis_pseudoinverse
+
+        if basis_on_arbitrary_grid_dict is None:
+            basis_on_arbitrary_grid_dict = self._build_basis_on_arbitrary_grid_dict(given_grid)
+
+        quantities_arbitrary_grid = np.zeros((len(given_grid), field_values.shape[1]))
+        for elem_idx in range(n_elem):
+            idx_uniform = (
+                (given_grid >= self.physical_nodes_reshaped[elem_idx:elem_idx + 1, 0])
+                & (given_grid <= self.physical_nodes_reshaped[elem_idx:elem_idx + 1, -1])
+            )
+            if not np.any(idx_uniform):
+                continue
+            field_values_coeffs_from_pseudoinverse = (
+                basis_pseudoinverse[elem_idx, :, :]
+                @ field_values[elem_idx * n_quad:(elem_idx + 1) * n_quad, :]
+            )
+            quantities_arbitrary_grid[idx_uniform, :] = (
+                basis_on_arbitrary_grid_dict[elem_idx] @ field_values_coeffs_from_pseudoinverse
+            )
+
+        return quantities_arbitrary_grid
 
 
     def evaluate_single_field_on_grid(
         self,
-        given_grid : np.ndarray,
-        field_values: np.ndarray,
+        given_grid                   : np.ndarray,
+        field_values                 : np.ndarray,
+        basis_on_arbitrary_grid_dict : Optional[Dict[int, np.ndarray]] = None,
     ) -> np.ndarray:
         """
         Evaluate a single field on a given grid using Lagrange interpolation.
@@ -1220,48 +1429,20 @@ class RadialOperatorsBuilder:
             Grid points where the field should be evaluated.
             Must be monotonically increasing and within the physical domain.
         field_values : np.ndarray, shape (n_elem * n_quad,)
-            Field values at quadrature points (global quadrature points).
-            The field is stored as: f[r_quad] where r_quad are quadrature nodes.
-        
+            Field values at global quadrature points.
+        basis_on_arbitrary_grid_dict : dict[int, np.ndarray], optional
+            Precomputed basis from ``_build_basis_on_arbitrary_grid_dict``.
+            Reuse when mapping several fields onto the same ``given_grid``.
+
         Returns
         -------
         field_on_grid : np.ndarray, shape (n_points,)
-            Field values evaluated at the given grid points.
-            field_on_grid[i] = f(given_grid[i])
-        
-        Implementation Logic
-        --------------------
-        1. **Input validation**:
-           - Grid must be monotonically increasing
-           - Grid must be within physical domain bounds
-           - Orbital must be 1D array with shape (n_elem * n_quad,)
-        
-        2. **Reshape field to element structure**:
-           - Global field: (n_elem * n_quad,) → Element-wise: (n_elem, n_quad)
-           - Each row contains the field values at quadrature points for one element
-        
-        3. **For each element, compute pseudoinverse of Lagrange basis**:
-           - lagrange_basis[elem_idx] has shape (n_quad, n_basis)
-           - basis_pseudoinverse[elem_idx] maps quadrature values → nodal coefficients
-        
-        4. **For each grid point**:
-           a. Find which element contains the point (using element boundaries)
-           b. Convert quadrature values to nodal coefficients: c_nodal = L⁺ @ f_quad
-           c. Evaluate Lagrange basis functions at that point
-           d. Compute field value: f(x) = Σᵢ c_nodal_i * Lᵢ(x)
-        
-        5. **Handle boundary nodes**:
-           - Boundary nodes are shared between adjacent elements
-           - Use the element that naturally contains the point
-           - For the last element, include the right boundary point
-        
+            Field values on ``given_grid``.
+
         Notes
         -----
-        - The field input is at quadrature points, not physical nodes.
-        - The interpolation uses Lagrange basis functions defined at physical nodes.
-        - The conversion from quadrature points to nodal coefficients uses the
-          pseudoinverse of the Lagrange basis matrix.
-        - Points outside the domain are not allowed (will raise assertion error).
+        Delegates to ``evaluate_quantites_on_arbitrary_grid`` (vectorized per
+        element). Input is quadrature-point data, not FE nodal coefficients.
         
         Example
         -------
@@ -1275,110 +1456,63 @@ class RadialOperatorsBuilder:
         ... )
         >>> # field_on_grid.shape = (1000,)
         """
-        # Validate input: grid must be monotonically increasing
-        assert np.all(np.diff(given_grid) > 0.0), \
-            GIVEN_GRID_NOT_MONOTONICALLY_INCREASING_ERROR
-
-        # Validate input: grid must be within physical domain
-        assert np.all(given_grid >= self.physical_nodes[0]) and \
-               np.all(given_grid <= self.physical_nodes[-1]), \
-            GIVEN_GRID_NOT_WITHIN_PHYSICAL_NODES_ERROR
-
-        # Validate input: field values must be 1D array with correct shape
+        # Validate input: field values must be a 1D array with shape (n_elem * n_quad,)
         assert field_values.ndim == 1, \
             FIELD_VALUES_NDIM_ERROR_MESSAGE.format(field_values.ndim)
         assert field_values.shape[0] == self.finite_element_number * self.quadrature_node_number, \
-            FIELD_VALUES_SHAPE_ERROR_MESSAGE.format(
-                field_values.shape[0], 
-                self.finite_element_number * self.quadrature_node_number
-            )
-
-        n_elem   = self.finite_element_number
-        n_quad   = self.quadrature_node_number
-        n_basis  = self.physical_node_number
-        n_points = len(given_grid)
+            FIELD_VALUES_SHAPE_ERROR_MESSAGE.format(field_values.shape[0], self.finite_element_number * self.quadrature_node_number,)
         
-        # Reshape field from global quadrature points to element-wise structure
-        # Shape: (n_elem * n_quad,) -> (n_elem, n_quad)
-        # Each row contains the field values at quadrature points for one element
-        field_values_reshaped = field_values.reshape(n_elem, n_quad)
-        
-        # Compute pseudoinverse of Lagrange basis for each element
-        # This maps quadrature point values to nodal coefficients
-        # basis_pseudoinverse[elem_idx] has shape (n_basis, n_quad)
-        basis_pseudoinverse = np.zeros((n_elem, n_basis, n_quad))
-        for elem_idx in range(n_elem):
-            # self.lagrange_basis[elem_idx] has shape (n_quad, n_basis)
-            # Pseudoinverse maps: f_quad → c_nodal
-            basis_pseudoinverse[elem_idx] = np.linalg.pinv(self.lagrange_basis[elem_idx])
-        
-        # Get element boundaries from physical nodes
-        boundaries = np.zeros(n_elem + 1)
-        boundaries[0] = self.physical_nodes_reshaped[0, 0]
-        for elem_idx in range(n_elem):
-            boundaries[elem_idx + 1] = self.physical_nodes_reshaped[elem_idx, -1]
-        
-        # Initialize output array
-        field_on_grid = np.zeros(n_points)
-        
-        # For each grid point, find its element and evaluate the field
-        for point_idx, x_point in enumerate(given_grid):
-            # Find which element contains this point
-            # For the last element, include the right boundary
-            elem_idx = None
-            for e_idx in range(n_elem):
-                left = boundaries[e_idx]
-                right = boundaries[e_idx + 1]
-                if e_idx == n_elem - 1:
-                    # Last element: include right boundary
-                    if left <= x_point <= right:
-                        elem_idx = e_idx
-                        break
-                else:
-                    # Other elements: exclude right boundary (handled by next element)
-                    if left <= x_point < right:
-                        elem_idx = e_idx
-                        break
-            
-            if elem_idx is None:
-                # This should not happen if assertions passed, but handle gracefully
-                raise ValueError(f"Point {x_point} not found in any element")
-            
-            # Get field values at quadrature points for this element
-            field_quad_elem = field_values_reshaped[elem_idx, :]  # Shape: (n_quad,)
-            
-            # Convert quadrature point values to nodal coefficients
-            # c_nodal = L⁺ @ f_quad, where L⁺ is the pseudoinverse
-            nodal_coeffs = basis_pseudoinverse[elem_idx] @ field_quad_elem  # Shape: (n_basis,)
-            
-            # Get physical nodes for this element (as row vector for LagrangeShapeFunctions)
-            nodes_elem = self.physical_nodes_reshaped[elem_idx:elem_idx+1, :]  # Shape: (1, n_basis)
-            
-            # Evaluate Lagrange basis functions at this point
-            # x_eval should be (1, 1) for single point
-            basis_elem, _ = LagrangeShapeFunctions.lagrange_basis_and_derivatives(
-                x_node=nodes_elem,           # (1, n_basis)
-                x_eval=np.array([[x_point]])  # (1, 1)
-            )
-            # basis_elem shape: (1, 1, n_basis) -> (n_basis,)
-            basis_values = basis_elem[0, 0, :]
-            
-            # Compute field value: f(x) = Σᵢ c_nodal_i * Lᵢ(x)
-            field_on_grid[point_idx] = np.dot(nodal_coeffs, basis_values)
-
-        return field_on_grid
+        return self.evaluate_quantites_on_arbitrary_grid(
+            given_grid                   = given_grid,
+            field_values                 = field_values,
+            basis_on_arbitrary_grid_dict = basis_on_arbitrary_grid_dict,
+        ).reshape(-1)
 
 
 
-    @property
-    def grid_data(self) -> GridData:
+    @staticmethod
+    def build_cubic_spline_derivative_matrix(
+        r                : np.ndarray,
+        left_derivative  : float = 0.0,
+        right_derivative : float = 0.0,
+    ) -> np.ndarray:
         """
-        Property accessor for grid data.
-        Used for response function calculation, etc.
+        Build a 2D derivative matrix for a 1D cubic spline on ``r``.
+
+        For grid values ``f`` on ``r``, ``D @ f`` gives ``df/dr`` at each grid point,
+        where ``D[i, j] = ∂f/∂f_j`` evaluated at ``r_i``. The spline uses clamped
+        boundary conditions ``f'(r_0) = left_derivative`` and
+        ``f'(r_{n-1}) = right_derivative`` (default: zero slope at both ends).
+
+        Parameters
+        ----------
+        r : np.ndarray
+            Strictly increasing 1D radial grid, shape ``(n,)``.
+        left_derivative, right_derivative : float
+            First-derivative boundary values at the left and right endpoints.
+
+        Returns
+        -------
+        np.ndarray
+            Shape ``(n, n)``, ``float64``.
         """
-        return GridData(
-            finite_element_number = self.finite_element_number,
-            physical_nodes        = self.physical_nodes,
-            quadrature_nodes      = self.quadrature_nodes,
-            quadrature_weights    = self.quadrature_weights,
-        )
+        from scipy.interpolate import CubicSpline
+
+        r = np.asarray(r, dtype=np.float64).reshape(-1)
+        n = r.size
+        if n < 2:
+            raise ValueError(
+                "build_cubic_spline_derivative_matrix requires at least 2 grid points, "
+                f"got {n}."
+            )
+        if not np.all(np.diff(r) > 0.0):
+            raise ValueError("Grid r must be strictly increasing.")
+
+        bc_type = ((1, float(left_derivative)), (1, float(right_derivative)))
+        D = np.zeros((n, n), dtype=np.float64)
+        eye = np.eye(n, dtype=np.float64)
+        for j in range(n):
+            spline = CubicSpline(r, eye[:, j], bc_type=bc_type)
+            D[:, j] = spline(r, nu=1)
+        return D
+
