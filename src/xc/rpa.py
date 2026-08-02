@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 
+import warnings
+
 import numpy as np
 from typing import Any, Tuple, List, Dict, Literal
 
@@ -41,6 +43,21 @@ OCCUPATION_INFO_L_TERMS_NOT_CONSISTENT_WITH_OCCUPATION_INFO_ERROR = \
     "Occupied l terms are not consistent with the occupation information, please check your inputs, get {} instead of {}."
 PARENT_CLASS_RPACORRELATION_NOT_INITIALIZED_ERROR = \
     "Parent class `RPACorrelation` is not initialized, please initialize it first."
+
+RPA_DRIVING_TERM_OLD_DEPRECATED_ERROR = (
+    "`_compute_rpa_correlation_driving_term_for_single_frequency_old` is deprecated "
+    "and no longer used. It is the previous fully-vectorized (high-memory) "
+    "implementation kept only for reference; use "
+    "`_compute_rpa_correlation_driving_term_for_single_frequency` instead."
+)
+
+RPA_CORRELATION_ENERGY_OLD_DEPRECATED_ERROR = (
+    "`_compute_correlation_energy_for_single_frequency_old` is deprecated "
+    "and no longer used. It is the previous fully-vectorized (high-memory) "
+    "implementation kept only for reference; use "
+    "`_compute_correlation_energy_for_single_frequency` instead."
+)
+
 
 L_OCC_MAX_NOT_INTEGER_ERROR = \
     "Parameter `l_occ_max` must be an integer, get type {} instead."
@@ -93,6 +110,7 @@ class RPACorrelation:
 
         # Extract quadrature data from ops_builder
         self.n_quad             = len(ops_builder.quadrature_nodes)
+        self.n_grid             = self.n_quad
         self.quadrature_nodes   = ops_builder.quadrature_nodes
         self.quadrature_weights = ops_builder.quadrature_weights
 
@@ -102,6 +120,7 @@ class RPACorrelation:
             self._initialize_frequency_grid_and_weights(frequency_quadrature_point_number, "inverse_linear")
 
         # occupation information
+        self.occupation_info : OccupationInfo = occupation_info
         self.occupations  : np.ndarray = occupation_info.occupations
         self.occ_l_values : np.ndarray = occupation_info.l_values
         self.occ_n_values : np.ndarray = occupation_info.n_values
@@ -225,6 +244,457 @@ class RPACorrelation:
                 - full_q1c_term: Q1c term, shape (n_quad,)
                 - full_q2c_term: Q2c term, shape (n_quad,)
         """
+        try:
+            frequency = float(frequency)
+        except ValueError:
+            raise ValueError(FREQUENCY_NOT_FLOAT_ERROR.format(type(frequency)))
+        assert isinstance(occupation_info, OccupationInfo), \
+            OCCUPATION_INFO_NOT_OCCUPATION_INFO_ERROR.format(type(occupation_info))
+        
+        # get occupation information
+        occupations  = occupation_info.occupations  # shape : (occ_orbitals_num,)
+        occ_l_values = occupation_info.l_values     # shape : (occ_orbitals_num,)
+
+
+        # get the number of occupied and unoccupied orbitals
+        occ_orbitals_num   = len(occ_l_values)
+        total_orbitals_num = len(full_eigen_energies)
+
+        # get the number of quadrature and n_interior points
+        n_quad     = radial_kernels_dict[0].shape[0]
+        n_interior = len(np.argwhere(full_l_terms == 0)[:, 0])
+
+        # get occupied and unoccupied orbitals and energies
+        occ_orbitals   = full_orbitals[:, :occ_orbitals_num]     # shape: (n_grid, total_orbitals_num)
+        occ_energies   = full_eigen_energies[:occ_orbitals_num]  # shape: (total_orbitals_num,)
+        occ_l_terms    = full_l_terms[:occ_orbitals_num]         # shape: (total_orbitals_num,)
+        unocc_orbitals = full_orbitals[:, occ_orbitals_num:]     # shape: (n_grid, unocc_orbitals_num)
+        unocc_energies = full_eigen_energies[occ_orbitals_num:]  # shape: (unocc_orbitals_num,)
+        unocc_l_terms  = full_l_terms[occ_orbitals_num:]         # shape: (total_orbitals_num,)
+
+        assert np.all(occ_l_terms == occ_l_values), \
+            OCCUPATION_INFO_L_TERMS_NOT_CONSISTENT_WITH_OCCUPATION_INFO_ERROR.format(occ_l_terms, occ_l_values)
+
+        ### ================================================ ###
+        ###  Part 1: Compute the RPA correlation prefactors  ###
+        ### ================================================ ###
+
+        # Occupation / angular factors entering (f_{nl} - f_{n'l'}) and C_{l';ll'}
+        #   ov: f_{nl} * (2l' + 1) for occupied nl and virtual n'l'  (f_{n'l'}=0)
+        #   shape: (occ_num, unocc_num)
+        deg_factors_ov = occupations[:, np.newaxis] * (2 * unocc_l_terms + 1)[np.newaxis, :]
+        #   oo: f_{nl}*(2l'+1) - f_{n'l'}*(2l+1) for occupied–occupied pairs
+        #   shape: (occ_num, occ_num)
+        deg_factors_oo = occupations[:, np.newaxis] * (2 * occ_l_terms + 1)[np.newaxis, :] - \
+                         occupations[np.newaxis, :] * (2 * occ_l_terms + 1)[:, np.newaxis]
+
+        # Eigenvalue differences λ_{nl} - λ_{n'l'}
+        #   shape: (occ_num, unocc_num)  — occupied nl vs virtual n'l'
+        delta_eps_ov = occ_energies[:, np.newaxis] - unocc_energies[np.newaxis, :]
+        #   shape: (occ_num, occ_num)    — occupied nl vs occupied n'l'
+        delta_eps_oo = occ_energies[:, np.newaxis] - occ_energies[np.newaxis, :]
+
+        # Frequency factor D_{nl,n'l'}(iω) = (λ_{nl} - λ_{n'l'}) / [ω² + (λ_{nl} - λ_{n'l'})²]
+        #   shape: (occ_num, unocc_num)
+        lorentzian_factors_ov = delta_eps_ov / (delta_eps_ov ** 2 + frequency ** 2)
+        #   shape: (occ_num, occ_num)
+        lorentzian_factors_oo = delta_eps_oo / (delta_eps_oo ** 2 + frequency ** 2)
+
+        # Frequency derivative of D for Q2c: (Δλ² - ω²) / (Δλ² + ω²)²
+        #   arises from ∂χ̃_{0,l''}/∂(iω)
+        #   shape: (occ_num, unocc_num)
+        frequency_derivative_factors_ov = (delta_eps_ov ** 2 - frequency ** 2) / (delta_eps_ov ** 2 + frequency ** 2) ** 2
+        #   shape: (occ_num, occ_num)
+        frequency_derivative_factors_oo = (delta_eps_oo ** 2 - frequency ** 2) / (delta_eps_oo ** 2 + frequency ** 2) ** 2
+
+
+        # Combine occupation/angular and frequency factors (Wigner 3j / C_{l';ll'} applied later)
+        #   shape: (occ_num, unocc_num)
+        prefactors_q1c_ov = deg_factors_ov * lorentzian_factors_ov
+        prefactors_q2c_ov = deg_factors_ov * frequency_derivative_factors_ov
+        #   shape: (occ_num, occ_num)
+        prefactors_q1c_oo = deg_factors_oo * lorentzian_factors_oo
+        prefactors_q2c_oo = deg_factors_oo * frequency_derivative_factors_oo
+
+
+        # Self-energy prefactors ~ (f_{nl}-f_{n'l'}) * D_{nl,n'l'}(iω)  (without Wigner yet)
+        #   shape: (occ_num, unocc_num)
+        prefactors_self_energy_ov = deg_factors_ov * delta_eps_ov / (delta_eps_ov ** 2 + frequency ** 2)
+        #   shape: (occ_num, occ_num)
+        prefactors_self_energy_oo = deg_factors_oo * delta_eps_oo / (delta_eps_oo ** 2 + frequency ** 2)
+        #   shape: (occ_num, total_num)  — oo then ov, matching orbital axis of full_orbitals
+        prefactors_self_energy_all = np.concatenate(
+            [prefactors_self_energy_oo, prefactors_self_energy_ov], axis=1
+        )
+
+
+        ### ================================================== ###
+        ###  Part 2: Compute the nonzero Wigner symbols        ###
+        ### ================================================== ###
+
+        l_couple_min   = np.min(np.abs(occ_l_values[:, np.newaxis] - full_l_terms[np.newaxis, :])).astype(np.int32)
+        l_couple_max   = np.max(       occ_l_values[:, np.newaxis] + full_l_terms[np.newaxis, :] ).astype(np.int32)
+        l_couple_range = np.arange(l_couple_min, l_couple_max + 1)
+
+
+        # Use advanced indexing with broadcasting - one operation instead of triple loop
+        #   shape: (occ_num, unocc_num, l_couple_num)
+        wigner_symbols_squared_ov = wigner_symbols_squared[
+            occ_l_terms   .astype(np.int32)[:, np.newaxis, np.newaxis],  # shape: (occ_orbitals_num, 1, 1)
+            unocc_l_terms .astype(np.int32)[np.newaxis, :, np.newaxis],  # shape: (1, unocc_num, 1)
+            l_couple_range.astype(np.int32)[np.newaxis, np.newaxis, :],  # shape: (1, 1, l_couple_num)
+        ]
+        #   shape: (occ_num, occ_num, l_couple_num)
+        wigner_symbols_squared_oo = wigner_symbols_squared[
+            occ_l_terms   .astype(np.int32)[:, np.newaxis, np.newaxis],  # shape: (occ_num, 1, 1)
+            occ_l_terms   .astype(np.int32)[np.newaxis, :, np.newaxis],  # shape: (1, occ_num, 1)
+            l_couple_range.astype(np.int32)[np.newaxis, np.newaxis, :],  # shape: (1, 1, l_couple_num)
+        ]
+        #   shape: (occ_num, total_num, l_couple_num)
+        wigner_symbols_squared_all = np.concatenate(
+            [wigner_symbols_squared_oo, wigner_symbols_squared_ov], axis=1
+        )
+
+        # Active l'' channels: at least one nonzero Wigner symbol in ov or oo.
+        active_l_couple_idx_list: List[int] = []
+        for l_couple_idx in range(len(l_couple_range)):
+            if (
+                np.any(wigner_symbols_squared_ov[:, :, l_couple_idx] != 0)
+                or np.any(wigner_symbols_squared_oo[:, :, l_couple_idx] != 0)
+            ):
+                active_l_couple_idx_list.append(l_couple_idx)
+
+        ### ================================================== ###
+        ###  Part 3: Solving for the RPA source term           ###
+        ### ================================================== ###
+
+        # Notice that the RPA source term all contain 
+        # 1. The summation over coupled l index, which is l'' in our CPC paper.
+        # 2. The integration over freqency quadrature points, which is ω in our CPC paper 
+        #     (which is already decoupled in this function, since this function only takes in a single frequency of float type).
+        # Therefore, only need to loop over all the coupled l index here, with non-zero Wigner symbols.
+        #     In principle, this part of computation can be parallelized, but for now, we only loop over the coupled l index here.
+        #     Note that we already support the parallelization over frequency, parallelization over l index will spawn too many sub-processes.
+
+        #   shape: (total_orbitals_num, n_quad)
+        full_self_energy_potential = np.zeros((total_orbitals_num, n_quad))
+        #   shape: (n_quad,)
+        full_q1c_term = np.zeros(n_quad)
+        full_q2c_term = np.zeros(n_quad)
+
+        for l_couple_idx in active_l_couple_idx_list:
+
+            active_l_couple = l_couple_range[l_couple_idx]
+            # Nonzero Wigner pairs for this l'': shape (n_nonzero, 2) -> [occ_i, partner_j]
+            active_wigner_symbols_indices_ov = np.argwhere(
+                wigner_symbols_squared_ov[:, :, l_couple_idx] != 0
+            )
+            active_wigner_symbols_indices_oo = np.argwhere(
+                wigner_symbols_squared_oo[:, :, l_couple_idx] != 0
+            )
+            occ_valid_indices_ov   = active_wigner_symbols_indices_ov[:, 0]
+            unocc_valid_indices_ov = active_wigner_symbols_indices_ov[:, 1]
+            occ_valid_indices_oo   = active_wigner_symbols_indices_oo[:, 0]
+            occ_partner_indices_oo = active_wigner_symbols_indices_oo[:, 1]
+            del active_wigner_symbols_indices_ov, active_wigner_symbols_indices_oo
+
+            # Step 1: Get radial kernel (Coulomb kernel for angular momentum channel L)
+            #   shape: (n_quad, n_quad)
+            #   R^{(L)}(r_i, r_j) = (1/(2L+1)) * (r_<^L / r_>^{L+1}) * w_i * w_j
+            #   where:
+            #     - r_< = min(r_i, r_j), r_> = max(r_i, r_j)
+            #     - w_i, w_j: quadrature weights at radial points r_i, r_j
+            #     - L = active_l_couple: angular momentum coupling channel
+            #   This is the radial projection of the Coulomb interaction in channel L
+            radial_kernel = radial_kernels_dict[active_l_couple] * (2 * active_l_couple + 1)
+
+            # Step 2:Compute rpa_response_kernel
+            #     shape: (n_quad, n_quad)
+            # Since this function is supposed to be run with multiple threads, we choose to **disable** 
+            #     the vectorization over (occ, unocc) index, in exchange for the storage efficiency.
+
+            #   rpa_response_kernel_ov: occ–virt part of χ̃_{0,l''}(r,r';iω)
+            #       χ̃_{0,l''}(r,r';iω)
+            #         = 2 Σ_{nl, n'l'} (f_{nl} - f_{n'l'}) C_{l';ll'} D_{nl,n'l'}(iω)
+            #             × R̃_{nl}(r) R̃_{n'l'}(r) R̃_{nl}(r') R̃_{n'l'}(r')
+            #       with
+            #         C_{l';ll'} = [(2l+1)(2l'+1)/(2l''+1)] * (l l' l''; 0 0 0)^2
+            #         D_{nl,n'l'}(iω) = (λ_{nl} - λ_{n'l'}) / [ω² + (λ_{nl} - λ_{n'l'})²]
+            #       Here nl runs over occupied orbitals, n'l' over virtual (f_{n'l'}=0);
+            #       the leading 2 is spin degeneracy. Angular factor (2l''+1) is restored
+            #       when forming the full rpa_response_kernel later.
+
+            # Memory-friendly accumulation (OEP-style):
+            #   χ₀ += Σ (pref * Wigner) * Φ ⊗ Φ
+            #   with Φ_{nl,n'l'}(r) = φ_{nl}(r) φ_{n'l'}(r) built only for one occupied nl at a time.
+            #   Equivalent to the old einsum over all pairs, but without storing (n_pairs, n_grid) tables.
+            #   Accumulate ov then oo into one buffer: χ̃_{0,l''} = (χ̃^{ov} + χ̃^{oo}) / (2l''+1).
+
+            #   shape: (n_quad, n_quad)
+            rpa_response_kernel = np.zeros((n_quad, n_quad))
+
+            # --- occ–virt (spin degeneracy ×2 applied after this loop) ---
+            orbital_pair_product = constants = None
+            for occ_index in np.unique(occ_valid_indices_ov):
+                unocc_partners = unocc_valid_indices_ov[occ_valid_indices_ov == occ_index]
+                #   shape: (n_quad, n_partners)  -- Φ(r) for fixed occupied nl and all allowed virtual n'l'
+                orbital_pair_product = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * unocc_orbitals[:, unocc_partners]
+                )
+                #   shape: (n_partners,)
+                constants = (
+                    prefactors_q1c_ov[occ_index, unocc_partners]
+                    * wigner_symbols_squared_ov[occ_index, unocc_partners, l_couple_idx]
+                )
+                #   (Φ * c) @ Φ.T  ==  Σ_i c_i Φ_i ⊗ Φ_i
+                rpa_response_kernel += (orbital_pair_product * constants) @ orbital_pair_product.T
+            del orbital_pair_product, constants
+            rpa_response_kernel *= 2
+
+            # --- occ–occ (fractional occupations) ---
+            orbital_pair_product = constants = None
+            for occ_index in np.unique(occ_valid_indices_oo):
+                occ_partners = occ_partner_indices_oo[occ_valid_indices_oo == occ_index]
+                #   shape: (n_quad, n_partners)
+                orbital_pair_product = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * occ_orbitals[:, occ_partners]
+                )
+                #   shape: (n_partners,)
+                constants = (
+                    prefactors_q1c_oo[occ_index, occ_partners]
+                    * wigner_symbols_squared_oo[occ_index, occ_partners, l_couple_idx]
+                )
+                rpa_response_kernel += (orbital_pair_product * constants) @ orbital_pair_product.T
+            del orbital_pair_product, constants
+
+            # Restore the 1/(2l''+1) factor omitted from C_{l';ll'} in the loops above.
+            rpa_response_kernel /= (2 * active_l_couple + 1)
+
+            # Screened interaction (correlation part) from the Dyson equation:
+            #   W_{l''}(iω) = (I - ν̃ χ̃_{0,l''})^{-1} ν̃ - ν̃
+            #   dyson_solved_response = np.linalg.solve(np.eye(n_quad) - radial_kernel @ rpa_response_kernel, radial_kernel) - radial_kernel
+            eye_minus_nu_chi = np.eye(n_quad) - radial_kernel @ rpa_response_kernel
+            del rpa_response_kernel
+            dyson_solved_response = (
+                np.linalg.solve(eye_minus_nu_chi, radial_kernel) - radial_kernel
+            )
+            del eye_minus_nu_chi
+
+            # --------------------------------------------------------------
+            # Self-energy / Q2c (memory-friendly, OEP-style loops)
+            # --------------------------------------------------------------
+            # Screened orbital contraction for each channel:
+            #   Σ̃ contribution ~ Σ_{n'l'} (f_{nl}-f_{n'l'}) C_{l';ll'} D_{nl,n'l'}(iω)
+            #                    × R̃_{n'l'}(r) ∫ R̃_{nl} R̃_{n'l'} W_{l''} dr''
+            #   shape: (total_orbitals_num, n_quad)
+            _self_energy_potential = np.zeros((total_orbitals_num, n_quad))
+
+            # Occupied nl rows: loop occupied; partners = all spectrum with Wigner ≠ 0
+            phi = temp = pref_all = None
+            for occ_index in range(occ_orbitals_num):
+                nonzero_full_indices = np.argwhere(
+                    wigner_symbols_squared_all[occ_index, :, l_couple_idx] != 0
+                )[:, 0]
+                if len(nonzero_full_indices) == 0:
+                    continue
+                #   shape: (n_partners,)
+                pref_all = (
+                    prefactors_self_energy_all[occ_index, nonzero_full_indices]
+                    * wigner_symbols_squared_all[occ_index, nonzero_full_indices, l_couple_idx]
+                )
+                #   shape: (n_partners, n_quad)  — Φ_{nl,n'l'}(r) = R̃_{nl}(r) R̃_{n'l'}(r)
+                phi = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * full_orbitals[:, nonzero_full_indices]
+                ).T
+                #   shape: (n_partners, n_quad)  — Φ @ W_{l''}
+                temp = phi @ dyson_solved_response
+                #   accumulate V̂_c R̃_{nl} piece on occupied channel
+                _self_energy_potential[occ_index, :] += np.einsum(
+                    'ik,i,ik->k',
+                    temp,
+                    pref_all,
+                    full_orbitals[:, nonzero_full_indices].T,
+                    optimize=True,
+                )
+            del phi, temp, pref_all
+
+            # Virtual n'l' rows (open-shell / fractional): accumulate onto unoccupied channels
+            #   This vanishes for closed-shell atoms with integer occupations on all virt.
+            pref_ov_L = (
+                prefactors_self_energy_ov
+                * wigner_symbols_squared_ov[:, :, l_couple_idx]
+            )
+            nonzero_unocc_indices = np.argwhere(~np.all(pref_ov_L == 0, axis=0))[:, 0]
+            if len(nonzero_unocc_indices) > 0:
+                phi = temp = None
+                for occ_index in range(occ_orbitals_num):
+                    pref_j = pref_ov_L[occ_index, nonzero_unocc_indices]
+                    if not np.any(pref_j):
+                        continue
+                    phi = (
+                        occ_orbitals[:, occ_index][:, np.newaxis]
+                        * unocc_orbitals[:, nonzero_unocc_indices]
+                    ).T
+                    temp = phi @ dyson_solved_response
+                    _self_energy_potential[occ_orbitals_num + nonzero_unocc_indices, :] += (
+                        pref_j[:, np.newaxis]
+                        * occ_orbitals[:, occ_index][np.newaxis, :]
+                        * temp
+                    )
+                del phi, temp
+            del pref_ov_L
+
+            # Q2c: δE_c^{RPA}/δλ piece × δλ/δV_s ~ R̃², from D^{(2)}_{nl,n'l'}(iω)
+            #   Q2c^{ov}: Σ (f_{nl}-f_{n'l'}) C D^{(2)} (R̃_{nl}² - R̃_{n'l'}²) Σ̃_{nl,n'l'}
+            #   Q2c^{oo}: Σ C^{oo} D^{(2)} R̃_{nl}² Σ̃_{nl,n'l'}   (fractional occ.)
+            #   shape: (n_quad,)
+            _q2c_term = np.zeros(n_quad)
+
+            # --- occ–virt ---
+            phi = sigma_tilde = constants = squared_diff = None
+            for occ_index in np.unique(occ_valid_indices_ov):
+                partners = unocc_valid_indices_ov[occ_valid_indices_ov == occ_index]
+                mask = (
+                    (deg_factors_ov[occ_index, partners] != 0)
+                    & (delta_eps_ov[occ_index, partners] != 0)
+                )
+                partners = partners[mask]
+                if len(partners) == 0:
+                    continue
+                #   shape: (n_quad, n_partners)
+                phi = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * unocc_orbitals[:, partners]
+                )
+                #   Σ̃_{nl,n'l'} = ∬ Φ(r') Φ(r'') W_{l''}(r'',r')  — pair scalars
+                sigma_tilde = np.einsum(
+                    'li,pi,pl->i', phi, phi, dyson_solved_response, optimize=True
+                )
+                constants = (
+                    prefactors_q2c_ov[occ_index, partners]
+                    * wigner_symbols_squared_ov[occ_index, partners, l_couple_idx]
+                )
+                squared_diff = (
+                    occ_orbitals[:, occ_index][:, np.newaxis] ** 2
+                    - unocc_orbitals[:, partners] ** 2
+                )
+                _q2c_term += squared_diff @ (constants * sigma_tilde)
+            del phi, sigma_tilde, constants, squared_diff
+
+            # --- occ–occ (fractional occupations) ---
+            phi = sigma_tilde = constants = None
+            for occ_index in range(occ_orbitals_num):
+                partners = np.argwhere(
+                    (deg_factors_oo[occ_index] != 0) & (delta_eps_oo[occ_index] != 0)
+                )[:, 0]
+                if len(partners) == 0:
+                    continue
+                phi = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * occ_orbitals[:, partners]
+                ).T  # (n_partners, n_quad)
+                sigma_tilde = np.einsum(
+                    'il,ip,pl->i', phi, phi, dyson_solved_response, optimize=True
+                )
+                constants = (
+                    prefactors_q2c_oo[occ_index, partners]
+                    * wigner_symbols_squared_oo[occ_index, partners, l_couple_idx]
+                )
+                _q2c_term += (occ_orbitals[:, occ_index] ** 2) * np.dot(
+                    constants, sigma_tilde
+                )
+            del phi, sigma_tilde, constants
+
+            full_q2c_term += _q2c_term
+            full_self_energy_potential += _self_energy_potential
+
+            del _self_energy_potential, _q2c_term, dyson_solved_response, radial_kernel
+
+        # --------------------------------------------------------------
+        # Q1c after summing Σ over all l'' channels
+        #   Involves same-l orbital Green:
+        #     δR̃_{nl}/δV_s ~ - Σ_{n'≠n} R̃_{n'l}(r) R̃_{n'l}(r') / (λ_{n'l}-λ_{nl}) R̃_{nl}
+        #   contracted with the accumulated self-energy potential.
+        # --------------------------------------------------------------
+        for l_value in range(angular_momentum_cutoff + 1):
+            l_indices = np.argwhere(full_l_terms == l_value)[:, 0]
+            total_orbitals_in_l_channel = full_orbitals[:, l_indices]
+            self_energy_in_l_channel = full_self_energy_potential[l_indices, :]
+            eigenvalues_in_l_channel = full_eigen_energies[l_indices]
+
+            diff_eigenvalues = (
+                eigenvalues_in_l_channel.reshape(-1, 1)
+                - eigenvalues_in_l_channel.reshape(1, -1)
+            )
+            threshold = 1e-12
+            one_over_diff_eigenvalues = np.divide(
+                1.0,
+                diff_eigenvalues,
+                out=np.zeros_like(diff_eigenvalues),
+                where=np.abs(diff_eigenvalues) > threshold,
+            )
+
+            q1c_term_in_l_channel = np.einsum(
+                'ki,ik->k',
+                total_orbitals_in_l_channel,
+                np.einsum(
+                    'ij,kj,ij->ik',
+                    one_over_diff_eigenvalues,
+                    total_orbitals_in_l_channel,
+                    np.einsum(
+                        'ix,xj->ij',
+                        self_energy_in_l_channel,
+                        total_orbitals_in_l_channel,
+                        optimize=True,
+                    ),
+                    optimize=True,
+                ),
+                optimize=True,
+            )
+            # Minus: OEP driving-term sign convention
+            full_q1c_term -= q1c_term_in_l_channel
+
+        assert full_q1c_term.shape == (n_quad,)
+        assert full_q2c_term.shape == (n_quad,)
+
+        return full_q1c_term, full_q2c_term
+
+
+
+    @staticmethod
+    def _compute_rpa_correlation_driving_term_for_single_frequency_old(
+        frequency               : float,
+        angular_momentum_cutoff : int,
+        occupation_info         : OccupationInfo,
+        full_eigen_energies     : np.ndarray, 
+        full_orbitals           : np.ndarray, 
+        full_l_terms            : np.ndarray,
+        wigner_symbols_squared  : np.ndarray,
+        radial_kernels_dict     : Dict[int, np.ndarray],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Compute RPA correlation driving term (Q1c and Q2c terms) at a given frequency.
+        
+        This function computes the two components of the RPA correlation driving term
+        used in the OEP (Optimized Effective Potential) method:
+        - Q1c term: First-order correlation term involving self-energy matrix elements
+        - Q2c term: Second-order correlation term involving the Dyson-solved response function
+        
+        The computation is performed for a single imaginary frequency and includes
+        contributions from all angular momentum coupling channels (l_couple).
+        
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: A tuple containing:
+                - full_q1c_term: Q1c term, shape (n_quad,)
+                - full_q2c_term: Q2c term, shape (n_quad,)
+        """
+        raise RuntimeError(
+            RPA_DRIVING_TERM_OLD_DEPRECATED_ERROR
+        )
+
         try:
             frequency = float(frequency)
         except ValueError:
@@ -644,6 +1114,7 @@ class RPACorrelation:
 
 
 
+
     @staticmethod
     def _compute_rpa_wigner_symbols_squared(
         l_occ_max   : int,
@@ -703,8 +1174,399 @@ class RPACorrelation:
         radial_kernels_dict    : Dict[int, np.ndarray],
     ) -> float:
         """
+        Compute the single-frequency integrand of the RPA correlation energy.
+
+        At imaginary frequency iω this returns the sum over angular channels
+            Σ_{l''} (2l''+1) Tr[ χ̃_{0,l''} ν_{l''} + log(I - χ̃_{0,l''} ν_{l''}) ]
+        (the outer 1/(2π) and ∫ dω weight are applied in compute_correlation_energy).
+        """
+        try:
+            frequency = float(frequency)
+        except ValueError:
+            raise ValueError(FREQUENCY_NOT_FLOAT_ERROR.format(type(frequency)))
+        assert isinstance(occupation_info, OccupationInfo), \
+            OCCUPATION_INFO_NOT_OCCUPATION_INFO_ERROR.format(type(occupation_info))
+        
+        # get occupation information
+        occupations  = occupation_info.occupations
+        occ_l_values = occupation_info.l_values
+
+
+        # get the number of occupied and unoccupied orbitals
+        occ_orbitals_num = len(occ_l_values)
+
+        # get the number of quadrature points
+        n_quad = radial_kernels_dict[0].shape[0]
+
+        # get occupied and unoccupied orbitals and energies
+        occ_orbitals   = full_orbitals[:, :occ_orbitals_num]     # shape: (n_grid, occ_num)
+        occ_energies   = full_eigen_energies[:occ_orbitals_num]  # shape: (occ_num,)
+        occ_l_terms    = full_l_terms[:occ_orbitals_num]         # shape: (occ_num,)
+        unocc_orbitals = full_orbitals[:, occ_orbitals_num:]     # shape: (n_grid, unocc_num)
+        unocc_energies = full_eigen_energies[occ_orbitals_num:]  # shape: (unocc_num,)
+        unocc_l_terms  = full_l_terms[occ_orbitals_num:]         # shape: (unocc_num,)
+
+        assert np.all(occ_l_terms == occ_l_values), \
+            OCCUPATION_INFO_L_TERMS_NOT_CONSISTENT_WITH_OCCUPATION_INFO_ERROR.format(occ_l_terms, occ_l_values)
+
+        ### ================================================ ###
+        ###  Part 1: Compute the RPA correlation prefactors  ###
+        ### ================================================ ###
+
+        # Occupation / angular factors entering (f_{nl} - f_{n'l'}) and C_{l';ll'}
+        #   ov: f_{nl} * (2l' + 1) for occupied nl and virtual n'l'  (f_{n'l'}=0)
+        #   shape: (occ_num, unocc_num)
+        deg_factors_ov = occupations[:, np.newaxis] * (2 * unocc_l_terms + 1)[np.newaxis, :]
+        #   oo: f_{nl}*(2l'+1) - f_{n'l'}*(2l+1) for occupied–occupied pairs
+        #   shape: (occ_num, occ_num)
+        deg_factors_oo = occupations[:, np.newaxis] * (2 * occ_l_terms + 1)[np.newaxis, :] - \
+                         occupations[np.newaxis, :] * (2 * occ_l_terms + 1)[:, np.newaxis]
+
+        # Eigenvalue differences λ_{nl} - λ_{n'l'}
+        #   shape: (occ_num, unocc_num)
+        delta_eps_ov = occ_energies[:, np.newaxis] - unocc_energies[np.newaxis, :]
+        #   shape: (occ_num, occ_num)
+        delta_eps_oo = occ_energies[:, np.newaxis] - occ_energies[np.newaxis, :]
+
+        # Frequency factor D_{nl,n'l'}(iω) = (λ_{nl} - λ_{n'l'}) / [ω² + (λ_{nl} - λ_{n'l'})²]
+        #   shape: (occ_num, unocc_num)
+        lorentzian_factors_ov = delta_eps_ov / (delta_eps_ov ** 2 + frequency ** 2)
+        #   shape: (occ_num, occ_num)
+        lorentzian_factors_oo = delta_eps_oo / (delta_eps_oo ** 2 + frequency ** 2)
+
+        # Combine occupation/angular and frequency factors (Wigner / C_{l';ll'} later)
+        #   shape: (occ_num, unocc_num)
+        prefactors_ov = deg_factors_ov * lorentzian_factors_ov
+        #   shape: (occ_num, occ_num)
+        prefactors_oo = deg_factors_oo * lorentzian_factors_oo
+
+        ### ================================================== ###
+        ###  Part 2: Compute the nonzero Wigner symbols        ###
+        ### ================================================== ###
+
+        l_couple_min   = np.min(np.abs(occ_l_values[:, np.newaxis] - full_l_terms[np.newaxis, :])).astype(np.int32)
+        l_couple_max   = np.max(       occ_l_values[:, np.newaxis] + full_l_terms[np.newaxis, :] ).astype(np.int32)
+        l_couple_range = np.arange(l_couple_min, l_couple_max + 1)
+
+        #   shape: (occ_num, unocc_num, l_couple_num)
+        wigner_symbols_squared_ov = wigner_symbols_squared[
+            occ_l_terms   .astype(np.int32)[:, np.newaxis, np.newaxis],
+            unocc_l_terms .astype(np.int32)[np.newaxis, :, np.newaxis],
+            l_couple_range.astype(np.int32)[np.newaxis, np.newaxis, :],
+        ]
+        #   shape: (occ_num, occ_num, l_couple_num)
+        wigner_symbols_squared_oo = wigner_symbols_squared[
+            occ_l_terms   .astype(np.int32)[:, np.newaxis, np.newaxis],
+            occ_l_terms   .astype(np.int32)[np.newaxis, :, np.newaxis],
+            l_couple_range.astype(np.int32)[np.newaxis, np.newaxis, :],
+        ]
+
+        # Active l'' channels: at least one nonzero Wigner symbol in ov or oo.
+        active_l_couple_idx_list: List[int] = []
+        for l_couple_idx in range(len(l_couple_range)):
+            if (
+                np.any(wigner_symbols_squared_ov[:, :, l_couple_idx] != 0)
+                or np.any(wigner_symbols_squared_oo[:, :, l_couple_idx] != 0)
+            ):
+                active_l_couple_idx_list.append(l_couple_idx)
+
+        ### ================================================== ###
+        ###  Part 3: RPA correlation energy integrand          ###
+        ### ================================================== ###
+        # E_c^{RPA} = (1/2π) Σ_{l''} (2l''+1) ∫ Tr[ χ̃_{0,l''} ν_{l''}
+        #              + log(I - χ̃_{0,l''} ν_{l''}) ] dω
+        # This function accumulates the frequency integrand (no 1/2π, no ω weight).
+
+        full_correlation_energy_at_single_frequency = 0.0
+
+        for l_couple_idx in active_l_couple_idx_list:
+
+            active_l_couple = l_couple_range[l_couple_idx]
+            # Nonzero Wigner pairs for this l'': shape (n_nonzero, 2) -> [occ_i, partner_j]
+            active_wigner_symbols_indices_ov = np.argwhere(
+                wigner_symbols_squared_ov[:, :, l_couple_idx] != 0
+            )
+            active_wigner_symbols_indices_oo = np.argwhere(
+                wigner_symbols_squared_oo[:, :, l_couple_idx] != 0
+            )
+            occ_valid_indices_ov   = active_wigner_symbols_indices_ov[:, 0]
+            unocc_valid_indices_ov = active_wigner_symbols_indices_ov[:, 1]
+            occ_valid_indices_oo   = active_wigner_symbols_indices_oo[:, 0]
+            occ_partner_indices_oo = active_wigner_symbols_indices_oo[:, 1]
+            del active_wigner_symbols_indices_ov, active_wigner_symbols_indices_oo
+
+            # Coulomb kernel ν_{l''} (stored radial_kernels already include 1/(2l''+1);
+            # multiply back so radial_kernel ≡ ν̃ used with χ̃ as in the driving-term path)
+            #   shape: (n_quad, n_quad)
+            radial_kernel = radial_kernels_dict[active_l_couple] * (2 * active_l_couple + 1)
+
+            # Accumulate ov then oo into one buffer: χ̃_{0,l''} = (χ̃^{ov} + χ̃^{oo}) / (2l''+1)
+            #   shape: (n_quad, n_quad)
+            rpa_response_kernel = np.zeros((n_quad, n_quad))
+
+            # --- occ–virt (spin degeneracy ×2 after this loop) ---
+            orbital_pair_product = constants = None
+            for occ_index in np.unique(occ_valid_indices_ov):
+                unocc_partners = unocc_valid_indices_ov[occ_valid_indices_ov == occ_index]
+                orbital_pair_product = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * unocc_orbitals[:, unocc_partners]
+                )
+                constants = (
+                    prefactors_ov[occ_index, unocc_partners]
+                    * wigner_symbols_squared_ov[occ_index, unocc_partners, l_couple_idx]
+                )
+                rpa_response_kernel += (orbital_pair_product * constants) @ orbital_pair_product.T
+            del orbital_pair_product, constants
+            rpa_response_kernel *= 2
+
+            # --- occ–occ (fractional occupations) ---
+            orbital_pair_product = constants = None
+            for occ_index in np.unique(occ_valid_indices_oo):
+                occ_partners = occ_partner_indices_oo[occ_valid_indices_oo == occ_index]
+                orbital_pair_product = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * occ_orbitals[:, occ_partners]
+                )
+                constants = (
+                    prefactors_oo[occ_index, occ_partners]
+                    * wigner_symbols_squared_oo[occ_index, occ_partners, l_couple_idx]
+                )
+                rpa_response_kernel += (orbital_pair_product * constants) @ orbital_pair_product.T
+            del orbital_pair_product, constants
+
+            rpa_response_kernel /= (2 * active_l_couple + 1)
+
+            # Channel contribution: (2l''+1) [ log det(I - ν̃ χ̃) + Tr(ν̃ χ̃) ]
+            #   energy_contrib = (2 * active_l_couple + 1) * (np.log(np.linalg.det(np.eye(n_quad) - radial_kernel @ rpa_response_kernel)) + np.trace(radial_kernel @ rpa_response_kernel))
+            nu_chi = radial_kernel @ rpa_response_kernel
+            trace_nu_chi = np.trace(nu_chi)
+            del rpa_response_kernel
+            eye_minus_nu_chi = np.eye(n_quad) - nu_chi
+            del nu_chi
+            energy_contrib = (2 * active_l_couple + 1) * (
+                np.log(np.linalg.det(eye_minus_nu_chi)) + trace_nu_chi
+            )
+            del eye_minus_nu_chi
+
+            full_correlation_energy_at_single_frequency += energy_contrib
+            del radial_kernel, energy_contrib, trace_nu_chi
+
+        return full_correlation_energy_at_single_frequency
+
+
+    @staticmethod
+    def _matrix_log_I_minus_nu_chi(
+        chi: np.ndarray,
+        nu: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Build νχ and log(I - νχ) via the symmetrized product A = ν^{1/2} χ ν^{1/2}.
+
+        Strategy (numerically stabler than eigendecomposing the non-symmetric νχ):
+          1. ν^{1/2}, ν^{-1/2} from eigh(ν)  (ν is SPD Coulomb kernel)
+          2. A = ν^{1/2} χ ν^{1/2}           (symmetric; eig(A) = eig(νχ))
+          3. log(I - νχ) = ν^{1/2} log(I - A) ν^{-1/2}
+          4. νχ = ν @ χ
+
+        Returns
+        -------
+        nu_chi : np.ndarray
+            νχ, shape (n, n)
+        log_I_minus_nu_chi : np.ndarray
+            log(I - νχ), shape (n, n), possibly complex
+        """
+        evals_nu, evecs_nu = np.linalg.eigh(nu)
+        evals_nu = np.maximum(evals_nu, 0.0)
+        sqrt_nu = np.sqrt(evals_nu)
+        inv_sqrt_nu = np.zeros_like(sqrt_nu)
+        positive = sqrt_nu > 1e-14
+        inv_sqrt_nu[positive] = 1.0 / sqrt_nu[positive]
+
+        nu_half = (evecs_nu * sqrt_nu) @ evecs_nu.T
+        nu_inv_half = (evecs_nu * inv_sqrt_nu) @ evecs_nu.T
+
+        A = nu_half @ chi @ nu_half
+        evals_A, evecs_A = np.linalg.eigh(A)
+
+        # Principal logarithm of (I - A) in the eigenbasis of A.
+        one_minus = (1.0 - evals_A).astype(np.complex128)
+        log_vals = np.log(one_minus)
+        log_I_minus_A = (evecs_A.astype(np.complex128) * log_vals) @ evecs_A.T
+
+        log_I_minus_nu_chi = nu_half.astype(np.complex128) @ log_I_minus_A @ nu_inv_half.astype(np.complex128)
+        nu_chi = nu @ chi
+        return nu_chi, log_I_minus_nu_chi
+
+
+    @staticmethod
+    def _compute_correlation_energy_density_for_single_frequency(
+        frequency              : float,
+        occupation_info        : OccupationInfo,
+        full_eigen_energies    : np.ndarray,
+        full_orbitals          : np.ndarray,
+        full_l_terms           : np.ndarray,
+        wigner_symbols_squared : np.ndarray,
+        radial_kernels_dict    : Dict[int, np.ndarray],
+    ) -> np.ndarray:
+        """
+        Single-frequency integrand of the RPA correlation energy density.
+
+        Same χ̃_{0,l''} construction as `_compute_correlation_energy_for_single_frequency`,
+        but accumulates the diagonal of
+            (2l''+1) [ ν̃ χ̃ + log(I - ν̃ χ̃) ]
+        instead of its Trace / log-det.  The outer 1/(2π), ω weight, and
+        division by 4π r² w are applied in `compute_correlation_energy_density`.
+
+        Returns
+        -------
+        np.ndarray
+            Complex array of shape (n_quad,); imaginary parts from branch cuts /
+            roundoff are cleaned by the caller.
+        """
+        try:
+            frequency = float(frequency)
+        except ValueError:
+            raise ValueError(FREQUENCY_NOT_FLOAT_ERROR.format(type(frequency)))
+        assert isinstance(occupation_info, OccupationInfo), \
+            OCCUPATION_INFO_NOT_OCCUPATION_INFO_ERROR.format(type(occupation_info))
+
+        occupations  = occupation_info.occupations
+        occ_l_values = occupation_info.l_values
+        occ_orbitals_num = len(occ_l_values)
+        n_quad = radial_kernels_dict[0].shape[0]
+
+        occ_orbitals   = full_orbitals[:, :occ_orbitals_num]
+        occ_energies   = full_eigen_energies[:occ_orbitals_num]
+        occ_l_terms    = full_l_terms[:occ_orbitals_num]
+        unocc_orbitals = full_orbitals[:, occ_orbitals_num:]
+        unocc_energies = full_eigen_energies[occ_orbitals_num:]
+        unocc_l_terms  = full_l_terms[occ_orbitals_num:]
+
+        assert np.all(occ_l_terms == occ_l_values), \
+            OCCUPATION_INFO_L_TERMS_NOT_CONSISTENT_WITH_OCCUPATION_INFO_ERROR.format(occ_l_terms, occ_l_values)
+
+        deg_factors_ov = occupations[:, np.newaxis] * (2 * unocc_l_terms + 1)[np.newaxis, :]
+        deg_factors_oo = occupations[:, np.newaxis] * (2 * occ_l_terms + 1)[np.newaxis, :] - \
+                         occupations[np.newaxis, :] * (2 * occ_l_terms + 1)[:, np.newaxis]
+
+        delta_eps_ov = occ_energies[:, np.newaxis] - unocc_energies[np.newaxis, :]
+        delta_eps_oo = occ_energies[:, np.newaxis] - occ_energies[np.newaxis, :]
+
+        lorentzian_factors_ov = delta_eps_ov / (delta_eps_ov ** 2 + frequency ** 2)
+        lorentzian_factors_oo = delta_eps_oo / (delta_eps_oo ** 2 + frequency ** 2)
+
+        prefactors_ov = deg_factors_ov * lorentzian_factors_ov
+        prefactors_oo = deg_factors_oo * lorentzian_factors_oo
+
+        l_couple_min   = np.min(np.abs(occ_l_values[:, np.newaxis] - full_l_terms[np.newaxis, :])).astype(np.int32)
+        l_couple_max   = np.max(       occ_l_values[:, np.newaxis] + full_l_terms[np.newaxis, :] ).astype(np.int32)
+        l_couple_range = np.arange(l_couple_min, l_couple_max + 1)
+
+        wigner_symbols_squared_ov = wigner_symbols_squared[
+            occ_l_terms   .astype(np.int32)[:, np.newaxis, np.newaxis],
+            unocc_l_terms .astype(np.int32)[np.newaxis, :, np.newaxis],
+            l_couple_range.astype(np.int32)[np.newaxis, np.newaxis, :],
+        ]
+        wigner_symbols_squared_oo = wigner_symbols_squared[
+            occ_l_terms   .astype(np.int32)[:, np.newaxis, np.newaxis],
+            occ_l_terms   .astype(np.int32)[np.newaxis, :, np.newaxis],
+            l_couple_range.astype(np.int32)[np.newaxis, np.newaxis, :],
+        ]
+
+        active_l_couple_idx_list: List[int] = []
+        for l_couple_idx in range(len(l_couple_range)):
+            if (
+                np.any(wigner_symbols_squared_ov[:, :, l_couple_idx] != 0)
+                or np.any(wigner_symbols_squared_oo[:, :, l_couple_idx] != 0)
+            ):
+                active_l_couple_idx_list.append(l_couple_idx)
+
+        # Accumulator for diag{ Σ_{l''} (2l''+1) [ν̃χ̃ + log(I - ν̃χ̃)] }
+        density_at_frequency = np.zeros(n_quad, dtype=np.complex128)
+
+        for l_couple_idx in active_l_couple_idx_list:
+
+            active_l_couple = l_couple_range[l_couple_idx]
+            active_wigner_symbols_indices_ov = np.argwhere(
+                wigner_symbols_squared_ov[:, :, l_couple_idx] != 0
+            )
+            active_wigner_symbols_indices_oo = np.argwhere(
+                wigner_symbols_squared_oo[:, :, l_couple_idx] != 0
+            )
+            occ_valid_indices_ov   = active_wigner_symbols_indices_ov[:, 0]
+            unocc_valid_indices_ov = active_wigner_symbols_indices_ov[:, 1]
+            occ_valid_indices_oo   = active_wigner_symbols_indices_oo[:, 0]
+            occ_partner_indices_oo = active_wigner_symbols_indices_oo[:, 1]
+            del active_wigner_symbols_indices_ov, active_wigner_symbols_indices_oo
+
+            radial_kernel = radial_kernels_dict[active_l_couple] * (2 * active_l_couple + 1)
+
+            rpa_response_kernel = np.zeros((n_quad, n_quad))
+
+            orbital_pair_product = constants = None
+            for occ_index in np.unique(occ_valid_indices_ov):
+                unocc_partners = unocc_valid_indices_ov[occ_valid_indices_ov == occ_index]
+                orbital_pair_product = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * unocc_orbitals[:, unocc_partners]
+                )
+                constants = (
+                    prefactors_ov[occ_index, unocc_partners]
+                    * wigner_symbols_squared_ov[occ_index, unocc_partners, l_couple_idx]
+                )
+                rpa_response_kernel += (orbital_pair_product * constants) @ orbital_pair_product.T
+            del orbital_pair_product, constants
+            rpa_response_kernel *= 2
+
+            orbital_pair_product = constants = None
+            for occ_index in np.unique(occ_valid_indices_oo):
+                occ_partners = occ_partner_indices_oo[occ_valid_indices_oo == occ_index]
+                orbital_pair_product = (
+                    occ_orbitals[:, occ_index][:, np.newaxis]
+                    * occ_orbitals[:, occ_partners]
+                )
+                constants = (
+                    prefactors_oo[occ_index, occ_partners]
+                    * wigner_symbols_squared_oo[occ_index, occ_partners, l_couple_idx]
+                )
+                rpa_response_kernel += (orbital_pair_product * constants) @ orbital_pair_product.T
+            del orbital_pair_product, constants
+
+            rpa_response_kernel /= (2 * active_l_couple + 1)
+
+            # Energy uses Tr / log det; here take the matrix diagonal of the same operator.
+            #   density_contrib = (2l''+1) * diag( ν̃χ̃ + log(I - ν̃χ̃) )
+            # with log(I - ν̃χ̃) from A = ν̃^{1/2} χ̃ ν̃^{1/2} (see _matrix_log_I_minus_nu_chi).
+            nu_chi, log_I_minus_nu_chi = RPACorrelation._matrix_log_I_minus_nu_chi(
+                rpa_response_kernel, radial_kernel
+            )
+            del rpa_response_kernel
+            channel_matrix = nu_chi.astype(np.complex128) + log_I_minus_nu_chi
+            del nu_chi, log_I_minus_nu_chi
+            density_at_frequency += (2 * active_l_couple + 1) * np.diag(channel_matrix)
+            del channel_matrix, radial_kernel
+
+        return density_at_frequency
+
+
+    @staticmethod
+    def _compute_correlation_energy_for_single_frequency_old(
+        frequency              : float,
+        occupation_info        : OccupationInfo,
+        full_eigen_energies    : np.ndarray, 
+        full_orbitals          : np.ndarray, 
+        full_l_terms           : np.ndarray,
+        wigner_symbols_squared : np.ndarray,
+        radial_kernels_dict    : Dict[int, np.ndarray],
+    ) -> float:
+        """
         Compute RPA correlation driving term for at given frequency.
         """
+        raise RuntimeError(
+            RPA_CORRELATION_ENERGY_OLD_DEPRECATED_ERROR
+        )
+
         try:
             frequency = float(frequency)
         except ValueError:
@@ -996,6 +1858,21 @@ class RPACorrelation:
     ) -> np.ndarray:
         """
         Compute RPA correlation energy density from eigenstates.
+
+        The total RPA correlation energy is
+            E_c^{RPA} = (1/2π) Σ_{l''} (2l''+1)
+                        ∫ Tr[ χ̃_{0,l''}(iω) ν_{l''}
+                              + log(I - χ̃_{0,l''}(iω) ν_{l''}) ] dω.
+
+        The spatial energy density e_c(r) is defined from the *diagonal* of the
+        same matrix integrand (instead of the Trace), then converted to a 3D
+        density by dividing by 4π r² w (same convention as HF exchange energy
+        density): E_c = ∫ e_c(r) 4π r² dr, with no extra ρ factor.
+
+        Returns
+        -------
+        np.ndarray
+            Real RPA correlation energy density at quadrature nodes, shape (n_grid,).
         """
         assert hasattr(self, 'frequency_grid') and hasattr(self, 'frequency_weights'), \
             PARENT_CLASS_RPACORRELATION_NOT_INITIALIZED_ERROR
@@ -1004,7 +1881,90 @@ class RPACorrelation:
 
         self._validate_full_spectrum_inputs(full_eigen_energies, full_orbitals, full_l_terms)
 
-        correlation_energy_density = np.zeros(self.n_grid)
+        l_occ_max    = np.max(self.occ_l_values)
+        l_unocc_max  = np.max(full_l_terms)
+        l_couple_max = l_occ_max + l_unocc_max
 
-        
-        raise NotImplementedError("RPA correlation energy density is not implemented yet, please implement it in the future")
+        wigner_symbols_squared = self._compute_rpa_wigner_symbols_squared(
+            l_occ_max    = np.max(self.occ_l_values),
+            l_unocc_max  = np.max(full_l_terms),
+        )
+
+        radial_kernels_dict = {}
+        for l_couple in range(l_couple_max + 1):
+            radial_kernels_dict[l_couple] = CoulombCouplingCalculator.radial_kernel(
+                l         = l_couple,
+                r_nodes   = self.quadrature_nodes,
+                r_weights = self.quadrature_weights,
+            )
+
+        correlation_energy_density = np.zeros(self.n_quad, dtype=np.complex128)
+
+        if not enable_parallelization:
+            for frequency, frequency_weight in zip(self.frequency_grid, self.frequency_weights):
+                density_at_frequency = self._compute_correlation_energy_density_for_single_frequency(
+                    frequency               = frequency,
+                    occupation_info         = self.occupation_info,
+                    full_eigen_energies     = full_eigen_energies,
+                    full_orbitals           = full_orbitals,
+                    full_l_terms            = full_l_terms,
+                    wigner_symbols_squared  = wigner_symbols_squared,
+                    radial_kernels_dict     = radial_kernels_dict,
+                )
+                correlation_energy_density += density_at_frequency * frequency_weight
+        else:
+            import multiprocessing as mp
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _single_frequency_task(args):
+                idx, (frequency, frequency_weight) = args
+                density_at_frequency = self._compute_correlation_energy_density_for_single_frequency(
+                    frequency               = frequency,
+                    occupation_info         = self.occupation_info,
+                    full_eigen_energies     = full_eigen_energies,
+                    full_orbitals           = full_orbitals,
+                    full_l_terms            = full_l_terms,
+                    wigner_symbols_squared  = wigner_symbols_squared,
+                    radial_kernels_dict     = radial_kernels_dict,
+                )
+                return idx, density_at_frequency * frequency_weight
+
+            n_workers = min(max(1, mp.cpu_count()), len(self.frequency_grid))
+
+            if threadpool_limits is not None:
+                blas_ctx = threadpool_limits(limits=1)
+            else:
+                blas_ctx = nullcontext()
+
+            with blas_ctx, ThreadPoolExecutor(max_workers=n_workers) as executor:
+                results = executor.map(
+                    _single_frequency_task,
+                    enumerate(zip(self.frequency_grid, self.frequency_weights))
+                )
+                for _, density_weighted in results:
+                    correlation_energy_density += density_weighted
+
+        # Frequency integral prefactor (same as total energy)
+        correlation_energy_density /= (2 * np.pi)
+
+        # Convert Trace-basis diagonal → 3D energy density (HF convention):
+        #   E = Σ_i e_i * 4π r_i² w_i
+        correlation_energy_density /= (
+            4 * np.pi * self.quadrature_nodes**2 * self.quadrature_weights
+        )
+
+        # Discard tiny imaginary parts from log branch / roundoff; warn if large.
+        imag_abs = np.abs(np.imag(correlation_energy_density))
+        imag_max = float(np.max(imag_abs)) if imag_abs.size else 0.0
+        real_scale = float(np.max(np.abs(np.real(correlation_energy_density)))) if imag_abs.size else 0.0
+        imag_tol = max(1e-8, 1e-10 * max(real_scale, 1.0))
+        if imag_max > imag_tol:
+            warnings.warn(
+                "RPA correlation energy density has a non-negligible imaginary part "
+                f"(max |Im| = {imag_max:.3e}); returning the real part.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+        return np.real(correlation_energy_density)
+
