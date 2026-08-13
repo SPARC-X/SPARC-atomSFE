@@ -25,7 +25,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CODE_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))  # SPARC-atomSFE/
+# tests/accuracy/RPA/algebraic_omega_mapping/ -> four levels to SPARC-atomSFE/
+CODE_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 
 ELEMENTS = {"He": 2, "Be": 4, "Al": 13, "Ar": 18, "Au": 79}
 LMAX     = {"He": 20, "Be": 20, "Al": 30, "Ar": 30, "Au": 40}

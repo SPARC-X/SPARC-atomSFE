@@ -56,6 +56,7 @@ try:
 except ImportError:
     threadpool_limits = None  # type: ignore
 
+
 # Cores this process may actually use.  Affinity, not cpu_count(): under a SLURM
 # cgroup cpu_count() reports the whole node.  RPA_N_WORKERS overrides it.
 AVAILABLE_CORES = int(os.environ.get("RPA_N_WORKERS") or 0) or (
@@ -72,7 +73,16 @@ FREQUENCY_QUADRATURE_POINT_NUMBER_NOT_INTEGER_ERROR = \
 FREQUENCY_QUADRATURE_POINT_NUMBER_NOT_GREATER_THAN_0_ERROR = \
     "Parameter 'frequency_quadrature_point_number' must be greater than 0, get {} instead."
 GRID_TYPE_NOT_VALID_ERROR = \
-    "Parameter `grid_type` must be one of 'inverse_linear' or 'rational', get {} instead."
+    "Parameter `grid_type` must be one of 'sinh' or 'algebraic', get {} instead."
+BASE_RULE_NOT_VALID_ERROR = \
+    "Parameter `base_rule` must be one of 'midpoint', 'trapezoid', 'clenshaw_curtis' " \
+    "or 'gauss_legendre', get {} instead."
+NO_CONTRIBUTING_TRANSITION_ERROR = \
+    "No contributing transition in the spectrum: every pair is either degenerate or " \
+    "shares an occupation per spatial orbital."
+FREQUENCY_GRID_NOT_BUILT_ERROR = \
+    "The 'sinh' frequency grid is built from the Kohn-Sham spectrum and does not exist " \
+    "until one of the compute_* methods is called. Do not read frequency_grid before then."
 
 PARENT_CLASS_RPACORRELATION_NOT_INITIALIZED_ERROR = \
     "Parent class `RPACorrelation` is not initialized, please initialize it first."
@@ -90,7 +100,9 @@ CONSTANTS_CALLER_NOT_VALID_ERROR = \
 RADIAL_COULOMB_KERNEL_APPLY_NOT_VALID_ERROR = \
     "Parameter `radial_coulomb_kernel_apply` must be one of 'differential_equation' or 'direct_integration', get {} instead."
 
-ValidGridType                = Literal["inverse_linear", "rational"]
+ValidGridType                = Literal["sinh", "algebraic"]
+ValidBaseRule                = Literal["midpoint", "trapezoid", "clenshaw_curtis",
+                                       "gauss_legendre"]
 ValidRadialCoulombKernelType = Literal["differential_equation", "direct_integration"]
 ValidConstantsCaller         = Literal["energy", "potential"]
 
@@ -107,6 +119,10 @@ class RPACorrelation:
         occupation_info                   : 'OccupationInfo',
         frequency_quadrature_point_number : int,
         radial_coulomb_kernel_apply       : ValidRadialCoulombKernelType = "differential_equation",
+        frequency_grid_type               : ValidGridType = "sinh",
+        frequency_base_rule               : ValidBaseRule = "midpoint",
+        omega_ceiling                     : float = 1.0e8,
+        algebraic_scale                   : float = 1.0,
     ):
         """
         Parameters
@@ -121,6 +137,26 @@ class RPACorrelation:
             which needs significantly higher q (and increasing with atomic number)
             for the same accuracy.
             Same labels as ExchangeMethod in hf.py.
+        frequency_grid_type               : 'sinh' (default) or 'algebraic'
+            'sinh' places the poles of chi_0 on a strip of constant height for every
+            transition energy, so the node count is essentially independent of Z
+            (~20 from Ar to Au for energy and ~50 for eigenvalues, against 200-400
+            for 'algebraic').  Its scale constant is the smallest transition energy,
+            so it is built from the spectrum at each compute_* call rather than here.
+            'algebraic' is the previous default and is spectrum-independent.
+        frequency_base_rule               : quadrature rule underlying the 'sinh' map
+            'midpoint' (default), 'trapezoid', 'clenshaw_curtis' or 'gauss_legendre'.
+            The transplanted integrand is analytic in a strip, where the equispaced
+            rules converge as exp(-pi^2 n / y_max); the clustered ones are optimal for
+            a Bernstein ellipse instead.  Ignored by 'algebraic', which is Gauss-Legendre
+            by construction.
+        omega_ceiling                     : float
+            Upper reach of the 'sinh' grid, in Hartree.  An ABSOLUTE ceiling, NOT
+            Delta_max: the top of the finite-element basis (~3.7e8 Ha) is a basis
+            artifact carrying negligible spectral weight.  Ignored by 'algebraic'.
+        algebraic_scale                   : float
+            The c in omega = c (1 + xi)/(1 - xi).  c = 1 (default) is the former
+            'inverse_linear', c = 2.5 the former 'rational'.  Ignored by 'sinh'.
         """
         assert isinstance(ops_builder, RadialOperatorsBuilder), \
             OPS_BUILDER_NOT_RADIAL_OPERATORS_BUILDER_ERROR.format(type(ops_builder))
@@ -132,6 +168,9 @@ class RPACorrelation:
             FREQUENCY_QUADRATURE_POINT_NUMBER_NOT_GREATER_THAN_0_ERROR.format(frequency_quadrature_point_number)
         if radial_coulomb_kernel_apply not in ("differential_equation", "direct_integration"):
             raise ValueError(RADIAL_COULOMB_KERNEL_APPLY_NOT_VALID_ERROR.format(radial_coulomb_kernel_apply))
+        if frequency_base_rule not in ("midpoint", "trapezoid", "clenshaw_curtis",
+                                       "gauss_legendre"):
+            raise ValueError(BASE_RULE_NOT_VALID_ERROR.format(frequency_base_rule))
 
         # Quadrature data
         self.n_quad             = len(ops_builder.quadrature_nodes)
@@ -144,11 +183,24 @@ class RPACorrelation:
         # --see _radial_poisson_operator.
         self.ops_builder = ops_builder
 
-        # Frequency grid
+        # Frequency grid.  'sinh' takes its scale constant from the Kohn-Sham spectrum,
+        # which does not exist yet, so it is left unbuilt and rebuilt at the top of each
+        # compute_* call -- one grid per SCF iteration, always matched to the current
+        # gap.  'algebraic' needs only n and is built now.
         self.frequency_quadrature_point_number = frequency_quadrature_point_number
-        self.frequency_grid, self.frequency_weights = \
-            self._initialize_frequency_grid_and_weights(frequency_quadrature_point_number,
-                                                        "inverse_linear")
+        self.frequency_grid_type               = frequency_grid_type
+        self.frequency_base_rule               = frequency_base_rule
+        self.omega_ceiling                     = omega_ceiling
+        self.algebraic_scale                   = algebraic_scale
+
+        if frequency_grid_type == "sinh":
+            self.frequency_grid    = None
+            self.frequency_weights = None
+        else:
+            self.frequency_grid, self.frequency_weights = \
+                self._initialize_frequency_grid_and_weights(
+                    frequency_quadrature_point_number, frequency_grid_type,
+                    algebraic_scale=algebraic_scale)
 
         # Occupation information.  The container itself is kept alongside the three
         # unpacked arrays so the class is usable standalone, without relying on a
@@ -165,41 +217,147 @@ class RPACorrelation:
     # =================================================================================
 
     @classmethod
-    def _initialize_frequency_grid_and_weights(cls, n: int, grid_type: ValidGridType
-                                               ) -> Tuple[np.ndarray, np.ndarray]:
-        """Initialize the frequency grid and weights."""
-        assert grid_type in ["inverse_linear", "rational"], \
-            GRID_TYPE_NOT_VALID_ERROR.format(grid_type)
-        if grid_type == "inverse_linear":
-            return cls._initialize_frequency_grid_and_weights_inverse_linear(n)
-        return cls._initialize_frequency_grid_and_weights_rational(n)
+    def _initialize_frequency_grid_and_weights(
+            cls, n: int, grid_type: ValidGridType,
+            full_eigen_energies: np.ndarray = None,
+            occupations: np.ndarray = None,
+            occ_l_values: np.ndarray = None,
+            omega_max: float = None,
+            base_rule: ValidBaseRule = "midpoint",
+            algebraic_scale: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Initialize the frequency grid and weights.
 
-    @classmethod
-    def _initialize_frequency_grid_and_weights_inverse_linear(
-            cls, n: int) -> Tuple[np.ndarray, np.ndarray]:
+        full_eigen_energies / occupations / occ_l_values / omega_max / base_rule are
+        used by 'sinh' only; algebraic_scale by 'algebraic' only.
         """
-        Gauss-Legendre nodes on (0, 1) mapped to (0, inf):
-            omega(xi) = 1/xi - 1,   w_omega = w_xi / (1 - xi)^2
-        Note the nodes are interior, so omega > 0 strictly -- nothing divides by zero
-        in Delta_eps^2 + omega^2 even on the p == q diagonal.
-        """
-        reference_nodes, reference_weights = Quadrature1D.gauss_legendre_on_interval(n, 0.0, 1.0)
-        nodes   = np.flip(1.0 / reference_nodes - 1.0)
-        weights = reference_weights / (1 - reference_nodes) ** 2
-        return nodes, weights
+        assert grid_type in ["sinh", "algebraic"], \
+            GRID_TYPE_NOT_VALID_ERROR.format(grid_type)
+        if grid_type == "sinh":
+            return cls._initialize_frequency_grid_and_weights_sinh(
+                n, full_eigen_energies, occupations, occ_l_values, omega_max,
+                base_rule)
+        return cls._initialize_frequency_grid_and_weights_algebraic(n, algebraic_scale)
 
     @staticmethod
-    def _initialize_frequency_grid_and_weights_rational(n: int) -> Tuple[np.ndarray, np.ndarray]:
+    def _base_rule_nodes_and_weights(n: int, upper: float,
+                                     rule: ValidBaseRule) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Gauss-Legendre nodes on [-1, 1] mapped to [0, inf):
-            omega(xi) = a (1 + xi)/(1 - xi),   w_omega = w_xi 2a/(1 - xi)^2
+        Quadrature on [0, upper] for one of the four base rules.
+
+        'midpoint' and 'trapezoid' are equispaced, open and closed respectively;
+        'clenshaw_curtis' and 'gauss_legendre' cluster at the ends, again closed and
+        open.  Only the closed rules carry a node at 0.
+        Clenshaw-Curtis weights from the cosine series (Trefethen, Spectral Methods in
+        MATLAB, clencurt.m).
+        """
+        if rule not in ("midpoint", "trapezoid", "clenshaw_curtis", "gauss_legendre"):
+            raise ValueError(BASE_RULE_NOT_VALID_ERROR.format(rule))
+
+        if rule == "midpoint":
+            return (upper * (2.0 * np.arange(n) + 1.0) / (2.0 * n),
+                    np.full(n, upper / n))
+
+        if rule == "gauss_legendre":
+            return Quadrature1D.gauss_legendre_on_interval(n, 0.0, upper)
+
+        if n == 1:                                       # degenerate ladder point
+            return np.array([0.0]), np.array([upper])
+
+        if rule == "trapezoid":
+            weights = np.full(n, upper / (n - 1))
+            weights[0]  *= 0.5
+            weights[-1] *= 0.5
+            return np.linspace(0.0, upper, n), weights
+
+        '''The code below forms the clenshaw-curtis omega points in [0, inf)'''
+        order = n - 1
+        theta = np.pi * np.arange(n) / order
+        weights = np.empty(n)
+        interior = theta[1:-1]
+        partial = np.ones(n - 2)
+        if order % 2 == 0:
+            weights[0] = weights[-1] = 1.0 / (order * order - 1.0)
+            for k in range(1, order // 2):
+                partial -= 2.0 * np.cos(2.0 * k * interior) / (4.0 * k * k - 1.0)
+            partial -= np.cos(order * interior) / (order * order - 1.0)
+        else:
+            weights[0] = weights[-1] = 1.0 / (order * order)
+            for k in range(1, (order + 1) // 2):
+                partial -= 2.0 * np.cos(2.0 * k * interior) / (4.0 * k * k - 1.0)
+        weights[1:-1] = 2.0 * partial / order
+        # theta ascends, so cos(theta) descends; reverse for ascending nodes
+        return (0.5 * upper * (1.0 + np.cos(theta)[::-1]),
+                0.5 * upper * weights[::-1])
+
+    @classmethod
+    def _initialize_frequency_grid_and_weights_sinh(
+            cls, n: int, full_eigen_energies: np.ndarray, occupations: np.ndarray,
+            occ_l_values: np.ndarray, omega_max: float,
+            base_rule: ValidBaseRule = "midpoint") -> Tuple[np.ndarray, np.ndarray]:
+        r"""
+        Sinh mapping, omega = c sinh(y) on y in [0, y_max]:
+
+            c = Delta_min,   y_max = arcsinh(omega_max / c),   domega/dy = c cosh(y)
+
+        chi_0's poles land at Im(y) = pi/2 for EVERY Delta, a strip of constant height,
+        so the node count is set by y_max and is only logarithmic in the spectrum --
+        ~20 nodes from Ar to Au against 200-400 for 'algebraic'.
+        Reference: Johnston & Elliott, Int. J. Numer. Meth. Engng 62 (2005) 564.
+
+        c must not EXCEED any contributing Delta: c <= Delta puts its pole at Im(y) =
+        pi/2 exactly, c > Delta at arcsin(Delta/c) < pi/2, i.e. off the strip and toward
+        the contour.  Erring small is nearly free, since c enters only through the
+        arcsinh.  Delta_min therefore runs over every pair with a non-zero occupation
+        difference -- occupied-occupied included, which is any open shell or fractional
+        filling -- matching exactly the pairs _build_the_constants gives a non-zero
+        A_pq.
+
+        omega_max is an ABSOLUTE ceiling, not Delta_max: the top of the finite-element
+        basis (~3.7e8 Ha) is a basis artifact carrying negligible spectral weight.
+
+        The closed base rules evaluate omega = 0, where chi_0's denominator
+        Delta^2 + omega^2 degenerates on the p == q diagonal; the numerator vanishes
+        there too and both call sites zero those entries.
+        """
+        eigenvalues     = np.asarray(full_eigen_energies, dtype=float)
+        occupations     = np.asarray(occupations, dtype=float)
+        occ_l_values    = np.asarray(occ_l_values, dtype=float)
+        occupied_number = occ_l_values.size
+
+        occupation_per_orbital     = occupations / (2 * occ_l_values + 1)
+        all_occupation_per_orbital = np.zeros(eigenvalues.size)
+        all_occupation_per_orbital[:occupied_number] = occupation_per_orbital
+
+        delta_eps   = np.abs(eigenvalues[:occupied_number][:, np.newaxis]
+                             - eigenvalues[np.newaxis, :])
+        contributes = (occupation_per_orbital[:, np.newaxis]
+                       != all_occupation_per_orbital[np.newaxis, :]) \
+                      & (delta_eps > 0.0) & np.isfinite(delta_eps)
+        assert contributes.any(), NO_CONTRIBUTING_TRANSITION_ERROR
+        delta_min = float(delta_eps[contributes].min())
+
+        y_max   = float(np.arcsinh(omega_max / delta_min))
+        y, w    = cls._base_rule_nodes_and_weights(n, y_max, base_rule)
+        return delta_min * np.sinh(y), w * delta_min * np.cosh(y)
+
+    @staticmethod
+    def _initialize_frequency_grid_and_weights_algebraic(
+            n: int, scale: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Gauss-Legendre nodes xi on [-1, 1] mapped to (0, inf):
+
+            omega(xi) = c (1 + xi)/(1 - xi),   w_omega = w_xi 2c/(1 - xi)^2
+
+        Spectrum-independent.  c = 1 is the former 'inverse_linear', c = 2.5 the former
+        'rational'.  Nodes are interior, so omega > 0 strictly -- nothing divides by
+        zero in Delta_eps^2 + omega^2 even on the p == q diagonal.
         Reference:
         https://journals.aps.org/prl/supplemental/10.1103/PhysRevLett.134.016402/scrpa4_SM.pdf
         """
-        frequency_scale = 2.5
         reference_nodes, reference_weights = Quadrature1D.gauss_legendre(n)
-        nodes   = frequency_scale * (1 + reference_nodes) / (1 - reference_nodes)
-        weights = reference_weights * 2 * frequency_scale / (1 - reference_nodes) ** 2
+        nodes   = scale * (1 + reference_nodes) / (1 - reference_nodes)
+        weights = reference_weights * 2 * scale / (1 - reference_nodes) ** 2
         return nodes, weights
 
     # =================================================================================
@@ -346,10 +504,15 @@ class RPACorrelation:
                 wigner = wigner_symbols_squared[l_occ, l_channel, active_l_couple]
                 if wigner == 0.0:
                     continue
-                constants = occ_all_constants[occ_index, state_indices] / \
-                            (delta_eps_squared[occ_index, state_indices] + frequency ** 2)
+                # The p == q self-pair has delta_eps = 0 and a vanishing numerator, so it
+                # contributes nothing; the denominator is neutralised before the divide
+                # because the closed base rules evaluate omega = 0, where 0/0 -> nan.
+                degenerate   = delta_eps_squared[occ_index, state_indices] == 0
+                denominators = delta_eps_squared[occ_index, state_indices] + frequency ** 2
+                denominators[degenerate] = 1.0
+                constants = occ_all_constants[occ_index, state_indices] / denominators
                 constants = constants * wigner
-                constants[delta_eps_squared[occ_index, state_indices] == 0] = 0.0  # This is necessary when \omega_frequency is 0
+                constants[degenerate] = 0.0
                 orbital_pair_product = full_orbitals[:, state_indices] * occ_orbitals[:, occ_index][:, np.newaxis]
                 rpa_response_kernel += (orbital_pair_product * constants) @ orbital_pair_product.T
         rpa_response_kernel[:,:] /= (2 * active_l_couple + 1)
@@ -454,13 +617,103 @@ class RPACorrelation:
             return self._build_radial_coulomb_kernel_differential(l_coupling, coulomb_kernel_terms[0])
 
     # =================================================================================
+    #  Coulomb FACTOR G, with nu^(L) = G G^T -- used by the energy path
+    # =================================================================================
+
+    @staticmethod
+    def _symmetric_inverse_sqrt(matrix: np.ndarray, rcond: float = 1e-14) -> np.ndarray:
+        """
+        M^(-1/2) for symmetric positive semi-definite M, via eigendecomposition.
+
+        Directions with eigenvalue <= rcond * max are PROJECTED OUT rather than
+        inverted -- inverting them would amplify roundoff without adding information,
+        since they carry no weight in nu.
+        """
+        eigenvalues, eigenvectors = np.linalg.eigh(0.5 * (matrix + matrix.T))
+        cutoff = rcond * max(float(eigenvalues.max()), 0.0)
+        inverse_sqrt = np.zeros_like(eigenvalues)
+        keep = eigenvalues > cutoff
+        inverse_sqrt[keep] = 1.0 / np.sqrt(eigenvalues[keep])
+        return (eigenvectors * inverse_sqrt) @ eigenvectors.T
+
+    @staticmethod
+    def _symmetric_sqrt(matrix: np.ndarray) -> np.ndarray:
+        """
+        M^(1/2) for symmetric positive semi-definite M.  Eigenvalues are clamped at
+        zero first: they are PSD in exact arithmetic, so any negative one is roundoff.
+        """
+        eigenvalues, eigenvectors = np.linalg.eigh(0.5 * (matrix + matrix.T))
+        np.clip(eigenvalues, 0.0, None, out=eigenvalues)
+        return (eigenvectors * np.sqrt(eigenvalues)) @ eigenvectors.T
+
+    def _build_coulomb_factor(self, l_coupling: int, coulomb_kernel_terms: tuple) -> np.ndarray:
+        """
+        G with nu^(L) = G G^T, built once per channel and reused by every frequency.
+
+        WHY A FACTOR AND NOT THE KERNEL.  The energy needs the eigenvalues of
+        nu.chi_0, and nu.chi_0 is not symmetric (a product of two symmetric matrices
+        is not).  But G^T chi_0 G IS symmetric and carries the same nonzero spectrum,
+        because eig(AB)\\{0} = eig(BA)\\{0} with A = G, B = G^T chi_0.  That buys a
+        symmetric eigenproblem (eigvalsh, real eigenvalues by construction) instead of
+        a nonsymmetric one, at ~2x the cost of the slogdet it replaces.
+
+        WHY THIS FACTORISATION.  The differential kernel is already built as
+        nu = (2L+1) W M^(-1) W^T, with W = weighted_interp and M the radial Poisson
+        operator.  M is SPD, so M = R^T R gives
+
+            nu = (2L+1) W R^(-1) R^(-T) W^T = G G^T,    G = sqrt(2L+1) W R^(-1)
+
+        and nu itself is never square-rooted.  That matters: cond(nu) ~ 8e20 at the
+        default mesh, against cond(M) ~ 5e7-2e8 -- thirteen orders better -- because
+        nu inherits both M's spectrum and W's rank deficiency (rank(nu) <= n_basis,
+        and n_quad >= n_basis always, since the solver requires
+        quadrature_point_number >= 2*polynomial_order+1).  Factoring the small
+        well-conditioned operator instead of the large ill-conditioned kernel is the
+        whole point.
+
+        Returns (n_quad, n_basis) for the differential kernel; (n_quad, n_quad) for
+        the integral kernel, which has no such structure and falls back to nu^(1/2).
+        """
+        l_coupling = int(l_coupling)
+        scale = np.sqrt(2 * l_coupling + 1)
+
+        # The integral kernel is an explicit multipole sum with no W M^-1 W^T form,
+        # so there is nothing to factor cheaply -- take the square root of nu itself.
+        if self.radial_coulomb_kernel_apply != "differential_equation":
+            return self._symmetric_sqrt(
+                self._build_radial_coulomb_kernel(l_coupling, coulomb_kernel_terms))
+
+        weighted_interp = coulomb_kernel_terms[0]
+        operator = self._radial_poisson_operator(l_coupling)
+        operator = 0.5 * (operator + operator.T)   # SPD to ~1e-17; kill the asymmetry
+
+        try:
+            # M = R^T R, then G^T = sqrt(2L+1) R^(-T) W^T by triangular solve.
+            R = scipy.linalg.cholesky(operator, lower=False)
+            factor = scale * scipy.linalg.solve_triangular(
+                R, weighted_interp.T, trans='T', lower=False).T
+            if np.all(np.isfinite(factor)):
+                return factor
+        except (np.linalg.LinAlgError, ValueError, scipy.linalg.LinAlgError):
+            pass
+
+        # FALLBACK, never raises.  Cholesky rejects a matrix with any negative
+        # eigenvalue, and M can pick one up at the roundoff level for a nearly
+        # singular channel.  The eigendecomposition route tolerates that: it clamps
+        # instead of failing, and gives an equally valid factor since
+        # nu = (2L+1) W M^(-1/2) M^(-1/2) W^T = G G^T.  G differs from the Cholesky
+        # one by an orthogonal factor on the right, which leaves eig(G^T chi_0 G)
+        # unchanged -- so the two paths are interchangeable, not merely similar.
+        return scale * (weighted_interp @ self._symmetric_inverse_sqrt(operator))
+
+    # =================================================================================
     #  ENERGY PATH
     # =================================================================================
 
     def _compute_correlation_energy_per_L_omega(
-        self, frequency, active_l_couple, radial_coulomb_kernel, occ_orbitals, full_orbitals,
+        self, frequency, active_l_couple, coulomb_factor, occ_orbitals, full_orbitals,
         occ_l_values, occ_all_constants, delta_eps_squared, wigner_symbols_squared,
-        channel_indices, n_quad, diag_indices,
+        channel_indices, n_quad,
     ) -> float:
         """
         ONE (l_couple, frequency) term -- the whole unit dispatched to the thread pool:
@@ -470,6 +723,27 @@ class RPACorrelation:
         The frequency weight is not applied -- the quadrature sum is done once at the end
         of compute_correlation_energy.
 
+        EVALUATED THROUGH EIGENVALUES, NOT slogdet.  With nu = G G^T (see
+        _build_coulomb_factor), S = G^T chi_0 G is symmetric and carries the same
+        nonzero spectrum as nu.chi_0, so
+
+            ln det(I - nu chi_0) + Tr(nu chi_0) = sum_k [ ln(1 - lam_k) + lam_k ]
+
+        summed PER EIGENVALUE.  The zero eigenvalues G drops contribute
+        ln(1-0) + 0 = 0, so nothing is lost by working in the smaller space.
+
+        WHY NOT slogdet + Tr, WHICH IS THE SAME QUANTITY.  Both terms are O(omega^-2)
+        and cancel to O(omega^-4).  Once |lam| < sqrt(eps) the determinant rounds to
+        exactly 1, slogdet returns 0, and the answer is destroyed -- measured as a hard
+        noise floor of ~1e-13 for omega above ~3e4, which the sinh Jacobian (~omega)
+        then amplifies into a quadrature error growing LINEARLY with omega_ceiling.
+        That was the entire reason omega_ceiling needed tuning.  Per-eigenvalue the
+        cancellation never happens: each term is -lam^2/2 - lam^3/3 - ...
+
+        log1p is applied to REAL input deliberately.  numpy has no complex log1p --
+        it evaluates log(1+z), which loses exactly as much as slogdet.  chi_0 and nu
+        are symmetric, so S is symmetric and eigvalsh returns real eigenvalues
+        directly; there is no imaginary part to discard.
         """
         rpa_response_kernel = self._build_rpa_response_kernel(
             frequency, active_l_couple, occ_orbitals, full_orbitals, occ_l_values,
@@ -477,14 +751,12 @@ class RPACorrelation:
             channel_indices, n_quad,
         )
 
-        nu_chi0    = radial_coulomb_kernel @ rpa_response_kernel          # ONCE
-        trace_term = np.trace(nu_chi0)
+        screened = coulomb_factor.T @ rpa_response_kernel @ coulomb_factor
+        screened = 0.5 * (screened + screened.T)      # discard the roundoff asymmetry
+        eigenvalues = np.linalg.eigvalsh(screened)
 
-        nu_chi0 *= (-1)      # (-\nu_chi_0); 
-        nu_chi0[diag_indices, diag_indices] += 1.0       ## (I - \nu_chi_0)  -- no explicity O(N^2) identity formation and addition
-
-        _sign, slogdet = np.linalg.slogdet(nu_chi0)   # used instead of det, avoids overflows/underflows
-        return (1 / (2 * np.pi)) * (2 * active_l_couple + 1) * (slogdet + trace_term)
+        return (1 / (2 * np.pi)) * (2 * active_l_couple + 1) * \
+            float(np.sum(np.log1p(-eigenvalues) + eigenvalues))
 
     def compute_correlation_energy(
         self,
@@ -501,8 +773,20 @@ class RPACorrelation:
         contracted with the frequency weights, which keeps the integrand available for
         convergence checks against the frequency grid.
         """
-        assert hasattr(self, 'frequency_grid') and hasattr(self, 'frequency_weights'), \
-            PARENT_CLASS_RPACORRELATION_NOT_INITIALIZED_ERROR
+        # 'sinh' only, and rebuilt on EVERY call: its scale constant c = Delta_min comes
+        # from the spectrum, so in a self-consistent run the grid follows the gap as the
+        # orbitals relax.  The other maps depend on n alone, were built in __init__, and
+        # are deliberately left untouched here -- rebuilding them would be pure waste,
+        # and would also overwrite a grid a caller had assigned by hand.
+        if self.frequency_grid_type == "sinh":
+            self.frequency_grid, self.frequency_weights = \
+                self._initialize_frequency_grid_and_weights(
+                    self.frequency_quadrature_point_number, self.frequency_grid_type,
+                    full_eigen_energies, self.occupations, self.occ_l_values,
+                    self.omega_ceiling, self.frequency_base_rule,
+                    self.algebraic_scale)
+        assert self.frequency_grid is not None and self.frequency_weights is not None, \
+            FREQUENCY_GRID_NOT_BUILT_ERROR
         assert isinstance(enable_parallelization, bool), \
             ENABLE_PARALLELIZATION_NOT_BOOL_ERROR.format(type(enable_parallelization))
         if hasattr(self, '_validate_full_spectrum_inputs'):
@@ -525,21 +809,20 @@ class RPACorrelation:
             self.occupations, self.occ_l_values, full_l_terms, full_eigen_energies,
             caller="energy")
         channel_indices = self._build_channel_indices(full_l_terms)
-        diag_indices    = np.arange(n_quad)
         coulomb_kernel_terms    = self._precompute_radial_coulomb_kernel_terms()
 
         correlation_energy_per_L_omega = np.zeros((l_couple_max + 1, len(self.frequency_grid)))
 
         if not enable_parallelization:
             for active_l_couple in range(l_couple_max + 1):                    # <-- OUTER
-                radial_coulomb_kernel = self._build_radial_coulomb_kernel(active_l_couple, coulomb_kernel_terms)
+                coulomb_factor = self._build_coulomb_factor(active_l_couple, coulomb_kernel_terms)
                 for index, frequency in enumerate(self.frequency_grid):        # <-- INNER
                     correlation_energy_per_L_omega[active_l_couple, index] = \
                         self._compute_correlation_energy_per_L_omega(
-                            frequency, active_l_couple, radial_coulomb_kernel, occ_orbitals,
+                            frequency, active_l_couple, coulomb_factor, occ_orbitals,
                             full_orbitals, self.occ_l_values, occ_all_constants,
                             delta_eps_squared, wigner_symbols_squared, channel_indices,
-                            n_quad, diag_indices)
+                            n_quad)
         else:
             from concurrent.futures import ThreadPoolExecutor
 
@@ -551,15 +834,14 @@ class RPACorrelation:
             # one pool for the whole l_couple loop, not one per channel
             with blas_ctx, ThreadPoolExecutor(max_workers=n_workers) as executor:
                 for active_l_couple in range(l_couple_max + 1):                # <-- OUTER
-                    radial_coulomb_kernel = self._build_radial_coulomb_kernel(active_l_couple,
+                    coulomb_factor = self._build_coulomb_factor(active_l_couple,
                                                               coulomb_kernel_terms)
                     results = executor.map(                                    # <-- INNER
-                        lambda frequency, l=active_l_couple, k=radial_coulomb_kernel:
+                        lambda frequency, l=active_l_couple, k=coulomb_factor:
                             self._compute_correlation_energy_per_L_omega(
                                 frequency, l, k, occ_orbitals, full_orbitals,
                                 self.occ_l_values, occ_all_constants, delta_eps_squared,
-                                wigner_symbols_squared, channel_indices, n_quad,
-                                diag_indices),
+                                wigner_symbols_squared, channel_indices, n_quad),
                         self.frequency_grid,
                     )
                     correlation_energy_per_L_omega[active_l_couple, :] = list(results)
@@ -572,14 +854,42 @@ class RPACorrelation:
 
 
     def _compute_correlation_energy_density_per_L_omega(
-        self, frequency, frequency_weight, active_l_couple, radial_coulomb_kernel,
+        self, frequency, frequency_weight, active_l_couple, coulomb_factor,
         occ_orbitals, full_orbitals, occ_l_values, occ_all_constants,
         delta_eps_squared, wigner_symbols_squared, channel_indices, n_quad,
     ) -> Tuple[np.ndarray, float]:
         """
-        One (l_couple, frequency) term of the energy density, and of the energy.  The
-        density is the diagonal of the same matrix whose trace gives the energy, so both
-        come out of one eigendecomposition.
+        One (l_couple, frequency) term of the energy density, and of the energy.
+
+        Both are the same matrix function.  With f(x) = x + ln(1 - x),
+
+            density = diag f(nu.chi_0),        energy = Tr f(nu.chi_0)
+
+        so the density is the diagonal of the matrix whose trace is the energy, and one
+        eigendecomposition still serves both.
+
+        EVALUATED VIA THE FACTOR, NOT THE KERNEL.  With nu = G G^T (see
+        _build_coulomb_factor) and S = G^T chi_0 G, the identity
+        f(AB) = A g(BA) B, valid for analytic f with f(0) = 0 and g(x) = f(x)/x, gives
+
+            f(nu.chi_0) = G g(S) G^T chi_0,    g(S) = V diag(g(lam)) V^T,  S = V lam V^T
+
+        Three consequences, all improvements over forming nu.chi_0 directly:
+
+          * S is SYMMETRIC, so eigh replaces the nonsymmetric eig -- cheaper, and the
+            eigenvalues are real by construction rather than by discarding an imaginary
+            part that LAPACK produced as roundoff.
+          * V is ORTHOGONAL, so V^T replaces np.linalg.inv(eigenvectors).  Inverting a
+            nonsymmetric eigenvector matrix is expensive and ill-conditioned when
+            eigenvalues cluster -- and here most of the spectrum sits near zero.
+          * NO CANCELLATION.  diag(nu.chi_0) + diag(ln(I - nu.chi_0)) subtracted two
+            O(omega^-2) quantities to leave O(omega^-4), so once |lam| < sqrt(eps) the
+            result was destroyed exactly as slogdet was in the energy path.  Measured
+            against the energy path, the old form drifted 1.7e-9 at omega_ceiling = 1e6
+            and 7.4e-6 at 1e9.
+
+        The energy below is now the SAME expression compute_correlation_energy uses, so
+        the two entry points agree by construction rather than coincidentally.
 
         Returns
         -------
@@ -592,24 +902,39 @@ class RPACorrelation:
             channel_indices, n_quad,
         )
 
-        # nu.chi_0 is a product of two symmetric matrices, so it is not itself symmetric
-        # -- eig, not eigh.  Its eigenvalues are real and non-positive; the imaginary
-        # parts LAPACK returns are roundoff and are dropped at the end.
-        nu_chi0 = radial_coulomb_kernel @ rpa_response_kernel
-        eigenvalues, eigenvectors = np.linalg.eig(nu_chi0)
+        screened = coulomb_factor.T @ rpa_response_kernel @ coulomb_factor
+        eigenvalues, eigenvectors = np.linalg.eigh(screened)
 
-        # log(I - nu.chi_0): same eigenvectors, eigenvalues log(1 - lambda)
-        log_eigenvalues     = np.log1p(-eigenvalues)
-        log_I_minus_nu_chi0 = (eigenvectors * log_eigenvalues) @ np.linalg.inv(eigenvectors)
+        # g(lam) = [ln(1-lam) + lam] / lam, the exact closed form -- no series, no
+        # threshold.  lam = 0 is a REMOVABLE singularity with the exact limit g(0) = 0,
+        # since f(lam) = -lam^2/2 + O(lam^3); the mask is a 0/0 guard, not an
+        # approximation.  Exact zeros do occur: S is (n_basis x n_basis) while chi_0's
+        # rank is bounded by the contributing orbital pairs in the channel, so the high-L
+        # channels are rank deficient.
+        #
+        # Unlike the slogdet failure this replaces, the quotient cannot be destroyed by
+        # cancellation.  ln(1-lam) + lam carries absolute error ~eps*|lam|, so g carries
+        # absolute error ~eps whatever lam is, while g(lam) -> -lam/2 -> 0 alongside it;
+        # the result is then contracted against a chi_0 that is vanishing there too.
+        # lam <= 0 throughout (nu is PSD, chi_0 at imaginary frequency is NSD), so
+        # ln(1-lam) never sees a non-positive argument.
+        g_values = np.zeros_like(eigenvalues)
+        nonzero = eigenvalues != 0.0
+        lam_nonzero = eigenvalues[nonzero]
+        g_values[nonzero] = (np.log1p(-lam_nonzero) + lam_nonzero) / lam_nonzero
 
-        # diag(nu.chi_0) as the row sums of the Hadamard product, O(n^2)
-        diag_nu_chi0 = (radial_coulomb_kernel * rpa_response_kernel).sum(axis=1)
+        # diag f(nu.chi_0) = diag([G g(S) G^T] chi_0), a row sum of the Hadamard product
+        # since chi_0 is symmetric.  The (n_quad, n_quad) product is formed once and
+        # contracted immediately, so no matrix function is retained.
+        g_transformed = coulomb_factor @ ((eigenvectors * g_values) @ eigenvectors.T) \
+            @ coulomb_factor.T
+        diagonal_f = np.sum(g_transformed * rpa_response_kernel, axis=1)
 
         density_contribution = (1 / (2 * np.pi)) * frequency_weight * \
-            (2 * active_l_couple + 1) * (diag_nu_chi0 + np.diagonal(log_I_minus_nu_chi0).real)
+            (2 * active_l_couple + 1) * diagonal_f
 
         energy_contribution = (1 / (2 * np.pi)) * (2 * active_l_couple + 1) * \
-            (float(np.sum(log_eigenvalues).real) + float(diag_nu_chi0.sum()))
+            float(np.sum(np.log1p(-eigenvalues) + eigenvalues))
 
         return density_contribution, energy_contribution
 
@@ -630,8 +955,20 @@ class RPACorrelation:
             E_c = sum_i e_i 4 pi r_i^2 w_i -- the exact-exchange convention
         correlation_energy : float
         """
-        assert hasattr(self, 'frequency_grid') and hasattr(self, 'frequency_weights'), \
-            PARENT_CLASS_RPACORRELATION_NOT_INITIALIZED_ERROR
+        # 'sinh' only, and rebuilt on EVERY call: its scale constant c = Delta_min comes
+        # from the spectrum, so in a self-consistent run the grid follows the gap as the
+        # orbitals relax.  The other maps depend on n alone, were built in __init__, and
+        # are deliberately left untouched here -- rebuilding them would be pure waste,
+        # and would also overwrite a grid a caller had assigned by hand.
+        if self.frequency_grid_type == "sinh":
+            self.frequency_grid, self.frequency_weights = \
+                self._initialize_frequency_grid_and_weights(
+                    self.frequency_quadrature_point_number, self.frequency_grid_type,
+                    full_eigen_energies, self.occupations, self.occ_l_values,
+                    self.omega_ceiling, self.frequency_base_rule,
+                    self.algebraic_scale)
+        assert self.frequency_grid is not None and self.frequency_weights is not None, \
+            FREQUENCY_GRID_NOT_BUILT_ERROR
         assert isinstance(enable_parallelization, bool), \
             ENABLE_PARALLELIZATION_NOT_BOOL_ERROR.format(type(enable_parallelization))
         if hasattr(self, '_validate_full_spectrum_inputs'):
@@ -662,13 +999,13 @@ class RPACorrelation:
 
         if not enable_parallelization:
             for active_l_couple in range(l_couple_max + 1):                    # <-- OUTER
-                radial_coulomb_kernel = self._build_radial_coulomb_kernel(active_l_couple,
-                                                                          coulomb_kernel_terms)
+                coulomb_factor = self._build_coulomb_factor(active_l_couple,
+                                                            coulomb_kernel_terms)
                 for index, (frequency, frequency_weight) in enumerate(frequency_pairs):  # <-- INNER
                     density_contribution, energy_contribution = \
                         self._compute_correlation_energy_density_per_L_omega(
                             frequency, frequency_weight, active_l_couple,
-                            radial_coulomb_kernel, occ_orbitals,
+                            coulomb_factor, occ_orbitals,
                             full_orbitals, self.occ_l_values, occ_all_constants,
                             delta_eps_squared, wigner_symbols_squared, channel_indices,
                             n_quad)
@@ -685,11 +1022,11 @@ class RPACorrelation:
             # one pool for the whole l_couple loop, not one per channel
             with blas_ctx, ThreadPoolExecutor(max_workers=n_workers) as executor:
                 for active_l_couple in range(l_couple_max + 1):                # <-- OUTER
-                    radial_coulomb_kernel = self._build_radial_coulomb_kernel(active_l_couple,
-                                                                              coulomb_kernel_terms)
-                    # bind the current channel and its kernel into each task
+                    coulomb_factor = self._build_coulomb_factor(active_l_couple,
+                                                                coulomb_kernel_terms)
+                    # bind the current channel and its factor into each task
                     results = executor.map(                                    # <-- INNER
-                        lambda pair, l=active_l_couple, k=radial_coulomb_kernel:
+                        lambda pair, l=active_l_couple, k=coulomb_factor:
                             self._compute_correlation_energy_density_per_L_omega(
                                 pair[0], pair[1], l, k, occ_orbitals, full_orbitals,
                                 self.occ_l_values, occ_all_constants, delta_eps_squared,
@@ -774,14 +1111,22 @@ class RPACorrelation:
                 # occupied states come first, so [n_occ_num:] selects the virtuals
                 n_occ_num = n_occ_in_channel[l_channel]
 
+                # Same p == q self-pair and same neutralised denominator as in
+                # _build_rpa_response_kernel; here nothing downstream would overwrite a
+                # nan, so it would reach Q1c and Q2c.
+                degenerate   = delta_eps_squared[occ_index, state_indices] == 0
+                denominators = delta_eps_squared[occ_index, state_indices] + frequency ** 2
+                denominators[degenerate] = 1.0
+
                 constants1_1 = occ_q1c_constants[occ_index, state_indices] * wigner
-                constants1_1 = constants1_1 / (delta_eps_squared[occ_index, state_indices]
-                                               + frequency ** 2)
+                constants1_1 = constants1_1 / denominators
+                constants1_1[degenerate] = 0.0
 
                 constants2_1 = occ_q2c_constants[occ_index, state_indices] * wigner
                 constants2_1 = constants2_1 * \
                     (delta_eps_squared[occ_index, state_indices] - frequency ** 2) / \
-                    (delta_eps_squared[occ_index, state_indices] + frequency ** 2) ** 2
+                    denominators ** 2
+                constants2_1[degenerate] = 0.0
 
                 orbitals_in_channel  = full_orbitals[:, state_indices]
                 orbital_pair_product = orbitals_in_channel * occ_orbitals[:, occ_index][:, np.newaxis]
@@ -864,8 +1209,20 @@ class RPACorrelation:
         -------
         (n_quad,) driving term on the radial quadrature grid.
         """
-        assert hasattr(self, 'frequency_grid') and hasattr(self, 'frequency_weights'), \
-            PARENT_CLASS_RPACORRELATION_NOT_INITIALIZED_ERROR
+        # 'sinh' only, and rebuilt on EVERY call: its scale constant c = Delta_min comes
+        # from the spectrum, so in a self-consistent run the grid follows the gap as the
+        # orbitals relax.  The other maps depend on n alone, were built in __init__, and
+        # are deliberately left untouched here -- rebuilding them would be pure waste,
+        # and would also overwrite a grid a caller had assigned by hand.
+        if self.frequency_grid_type == "sinh":
+            self.frequency_grid, self.frequency_weights = \
+                self._initialize_frequency_grid_and_weights(
+                    self.frequency_quadrature_point_number, self.frequency_grid_type,
+                    full_eigen_energies, self.occupations, self.occ_l_values,
+                    self.omega_ceiling, self.frequency_base_rule,
+                    self.algebraic_scale)
+        assert self.frequency_grid is not None and self.frequency_weights is not None, \
+            FREQUENCY_GRID_NOT_BUILT_ERROR
         assert isinstance(enable_parallelization, bool), \
             ENABLE_PARALLELIZATION_NOT_BOOL_ERROR.format(type(enable_parallelization))
         if hasattr(self, '_validate_full_spectrum_inputs'):

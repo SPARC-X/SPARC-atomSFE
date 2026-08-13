@@ -34,9 +34,19 @@ import warnings
 
 import pytest
 
-import cases as C
+# Loaded by path under a unique module name.  Both this suite and ../sinh/ have a
+# cases.py, and a plain `import cases` binds sys.modules['cases'] to whichever is
+# collected first -- silently giving one suite the other's Lmax, omega and expected
+# grid.
+import importlib.util as _importlib_util
 
-pytestmark = pytest.mark.rpa_accuracy
+_spec = _importlib_util.spec_from_file_location(
+    "rpa_algebraic_cases",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.py"))
+C = _importlib_util.module_from_spec(_spec)
+_spec.loader.exec_module(C)
+
+pytestmark = [pytest.mark.rpa_accuracy, pytest.mark.rpa_algebraic]
 
 ENERGY_ABS_TOL = 1e-5
 PERF_REL_TOL   = 0.20

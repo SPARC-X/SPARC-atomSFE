@@ -97,5 +97,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 markers = [
     "smoke: end-to-end smoke tests for solver workflows",
-    "rpa_accuracy: RPA accuracy/timing/memory checks against tests/accuracy/RPA/reference.json -- expensive, strongly recommends a 24-core allocation; select with -m rpa_accuracy or exclude with -m 'not rpa_accuracy'",
+    "rpa_accuracy: any RPA accuracy/timing/memory check -- expensive, strongly recommends a 24-core allocation; carried by BOTH suites below, so -m rpa_accuracy runs both and -m 'not rpa_accuracy' excludes both",
+    "rpa_algebraic: RPA accuracy on the algebraic omega map, tests/accuracy/RPA/algebraic",
+    "rpa_sinh: RPA accuracy on the sinh omega map, tests/accuracy/RPA/sinh",
 ]
