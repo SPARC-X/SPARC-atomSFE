@@ -4,6 +4,14 @@
 -changes
 
 ----------------
+Sep 09, 2026
+Name: Qihao Cheng
+Changes: (README.md, src/xc/oep.py, src/solver.py, src/scf/driver.py)
+1. Cite the published CPC article in README.
+2. OEP far-field pin is now ``-f_h/r`` (frontier-subshell occupation) instead of ``-1/r``.
+3. Expose ``oep_boundary_radius`` on ``AtomicDFTSolver`` (default 9 Bohr).
+
+----------------
 Aug 12, 2026
 Name: Shubhang Krishnakant Trivedi
 Changes: (src/xc/rpa.py,  tests/accuracy/RPA/sinh, tests/accuracy/RPA/algebraic, src/solver.py, pyproject.toml)

@@ -64,6 +64,7 @@ from .pseudo.local import LocalPseudopotential
 from .scf.energy import EnergyComponents
 from .scf.driver import SCFResult, SwitchesFlags
 from .xc.functional_requirements import get_functional_requirements, VALID_XC_FUNCTIONAL_LIST
+from .xc.oep import DEFAULT_EXX_TAIL_R_C
 from .utils.occupation_states import OccupationInfo
 from .utils.periodic import atomic_number_to_name
 
@@ -259,6 +260,10 @@ OEP_MIXING_PARAMETER_NOT_FLOAT_ERROR = \
     "parameter 'oep_mixing_parameter' must be a float, get {} instead."
 OEP_MIXING_PARAMETER_NOT_IN_ZERO_ONE_ERROR = \
     "parameter 'oep_mixing_parameter' must be in [0, 1], get {} instead."
+OEP_BOUNDARY_RADIUS_NOT_FLOAT_ERROR = \
+    "parameter 'oep_boundary_radius' must be a float, get {} instead."
+OEP_BOUNDARY_RADIUS_NOT_GREATER_THAN_0_ERROR = \
+    "parameter 'oep_boundary_radius' must be greater than 0, get {} instead."
 ENABLE_PARALLELIZATION_NOT_BOOL_ERROR = \
     "parameter 'enable_parallelization' must be a boolean, get {} instead."
 
@@ -357,6 +362,8 @@ ANGULAR_MOMENTUM_CUTOFF_NOT_NONE_FOR_XC_FUNCTIONAL_OTHER_THAN_RPA_WARNING = \
     "WARNING: parameter 'angular_momentum_cutoff' is not None for XC functional '{}', so it will be ignored."
 ENABLE_PARALLELIZATION_NOT_NONE_FOR_XC_FUNCTIONAL_OTHER_THAN_RPA_WARNING = \
     "WARNING: parameter 'enable_parallelization' is not None for XC functional '{}', so it will be ignored."
+OEP_BOUNDARY_RADIUS_NOT_NONE_WHEN_USE_OEP_IS_FALSE_WARNING = \
+    "WARNING: parameter 'oep_boundary_radius' is not None when 'use_oep' is False, so it will be ignored."
 ML_EACH_SCF_STEP_NOT_NONE_FOR_ML_XC_CALCULATOR_NOT_NONE_WARNING = \
     "WARNING: parameter 'ml_each_scf_step' is not None for machine learning model, so it will be ignored."
 ML_SMOOTH_RHO_FOR_FEATURES_NOT_NONE_WITHOUT_ML_XC_WARNING = \
@@ -485,6 +492,7 @@ class AtomicDFTSolver:
     angular_momentum_cutoff           : int   # Maximum angular momentum quantum number to include
     double_hybrid_flag                : bool  # internal: always False (constructor toggle hidden in this build)
     oep_mixing_parameter              : float # Scaling parameter (λ) for OEP exchange/correlation potentials
+    oep_boundary_radius               : float # Onset of the OEP −f_h/r pin (Bohr) when use_oep is True
     enable_parallelization            : bool  # Flag for parallelization of RPA calculations
     
     # Debugging and verbose parameters
@@ -531,6 +539,7 @@ class AtomicDFTSolver:
         frequency_quadrature_point_number : Optional[int]            = None,   # for RPA, 25 by default, otherwise not needed
         angular_momentum_cutoff           : Optional[int]            = None,   # for RPA, 4 by default, otherwise not needed
         oep_mixing_parameter              : Optional[float]          = None,   # 1.0 by default (scales OEP potentials), used for double hybrid functional only
+        oep_boundary_radius               : Optional[float]          = None,   # 9.0 Bohr by default when use_oep=True, otherwise None
         enable_parallelization            : Optional[bool]           = None,   # for RPA, False by default, otherwise not needed
 
         verbose                           : Optional[bool]           = None,   # False by default
@@ -626,6 +635,12 @@ class AtomicDFTSolver:
             Maximum angular momentum quantum number, used for RPA functional only. Defaults to 4.
         `oep_mixing_parameter` : float
             Mixing parameter for OEP functionals (lambda in OEP). Defaults to 1.0.
+        `oep_boundary_radius` : float
+            Radius (Bohr) beyond which the OEP potential is replaced by
+            ``-f_h/r``, where ``f_h`` is the occupation of the occupied
+            subshell with the largest eigenvalue, divided by ``2(2l_h+1)``.
+            Defaults to 9.0 when ``use_oep`` is True. Ignored (reset to None,
+            with a warning) when ``use_oep`` is False.
         `enable_parallelization` : bool
             Enable parallelization for RPA calculations. Defaults to False.
 
@@ -685,7 +700,8 @@ class AtomicDFTSolver:
         self.frequency_quadrature_point_number = frequency_quadrature_point_number
         self.angular_momentum_cutoff           = angular_momentum_cutoff
         self.double_hybrid_flag                = False
-        self.oep_mixing_parameter              = oep_mixing_parameter 
+        self.oep_mixing_parameter              = oep_mixing_parameter
+        self.oep_boundary_radius               = oep_boundary_radius
         self.enable_parallelization            = enable_parallelization
 
         self.verbose                           = verbose
@@ -819,6 +835,7 @@ class AtomicDFTSolver:
             "angular_momentum_cutoff"           : "angular_momentum_cutoff",
             "ground_state_functional"           : "ground_state_functional",
             "oep_mixing_parameter"              : "oep_mixing_parameter",
+            "oep_boundary_radius"               : "oep_boundary_radius",
             "enable_parallelization"            : "enable_parallelization",
         }
 
@@ -1306,6 +1323,25 @@ class AtomicDFTSolver:
             assert self.oep_mixing_parameter > 0.0 and self.oep_mixing_parameter <= 1.0, \
                 OEP_MIXING_PARAMETER_NOT_IN_ZERO_ONE_ERROR.format(self.oep_mixing_parameter)
 
+        # OEP −f_h/r pin radius (Bohr). Used only when use_oep is True.
+        if self.use_oep:
+            if self.oep_boundary_radius is None:
+                self.oep_boundary_radius = DEFAULT_EXX_TAIL_R_C
+            else:
+                if not isinstance(self.oep_boundary_radius, float):
+                    try:
+                        self.oep_boundary_radius = float(self.oep_boundary_radius)
+                    except:
+                        raise ValueError(OEP_BOUNDARY_RADIUS_NOT_FLOAT_ERROR.format(type(self.oep_boundary_radius)))
+                assert isinstance(self.oep_boundary_radius, float), \
+                    OEP_BOUNDARY_RADIUS_NOT_FLOAT_ERROR.format(type(self.oep_boundary_radius))
+                assert self.oep_boundary_radius > 0.0, \
+                    OEP_BOUNDARY_RADIUS_NOT_GREATER_THAN_0_ERROR.format(self.oep_boundary_radius)
+        else:
+            if self.oep_boundary_radius is not None:
+                print(OEP_BOUNDARY_RADIUS_NOT_NONE_WHEN_USE_OEP_IS_FALSE_WARNING)
+                self.oep_boundary_radius = None
+
         # enable parallelization flag
         if self.xc_functional in ['RPA', 'RPA@DFT']:
             if self.enable_parallelization is None:
@@ -1371,7 +1407,7 @@ class AtomicDFTSolver:
         # Be careful! This output can also be used to initialize the AtomicDFTSolver from output files!
         #     So, do not change the format of this output! Or if you want to change, please update the from_output_file method!
         print("===========================================================================")
-        print("*                  SPARC-atomSFE  (version Aug  12, 2026)                  *")
+        print("*                  SPARC-atomSFE  (version Sept 09, 2026)                 *")
         print("*   Copyright (c) 2026 Material Physics & Mechanics Group, Georgia Tech   *")
         print("*           Distributed under GNU General Public License 3 (GPL)          *")
         print("*                   Start time: {}                  *".format(get_sparc_time_string())) # Do not change the length for this line
@@ -1417,6 +1453,7 @@ class AtomicDFTSolver:
         print("\t frequency_quadrature_point_number : {}".format(self.frequency_quadrature_point_number))
         print("\t angular_momentum_cutoff           : {}".format(self.angular_momentum_cutoff))
         print("\t oep_mixing_parameter              : {}".format(self.oep_mixing_parameter))
+        print("\t oep_boundary_radius               : {}".format(self.oep_boundary_radius))
         print("\t enable_parallelization            : {}".format(self.enable_parallelization))
 
         print()
@@ -1622,6 +1659,7 @@ class AtomicDFTSolver:
             use_oep                           = self.use_oep,
             ops_builder_oep                   = self.ops_builder_oep,
             oep_mixing_parameter              = self.oep_mixing_parameter,
+            oep_boundary_radius               = self.oep_boundary_radius,
             frequency_quadrature_point_number = self.frequency_quadrature_point_number,
             angular_momentum_cutoff           = self.angular_momentum_cutoff,
             enable_parallelization            = self.enable_parallelization,

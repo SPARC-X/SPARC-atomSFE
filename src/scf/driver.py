@@ -149,6 +149,8 @@ OPS_BUILDER_OEP_TYPE_ERROR = \
     "parameter 'ops_builder_oep' must be a RadialOperatorsBuilder, get type {} instead."
 OEP_MIXING_PARAMETER_TYPE_ERROR = \
     "parameter 'oep_mixing_parameter' must be a float, get type {} instead."
+OEP_BOUNDARY_RADIUS_TYPE_ERROR = \
+    "parameter 'oep_boundary_radius' must be a float, get type {} instead."
 FREQUENCY_QUADRATURE_POINT_NUMBER_TYPE_ERROR = \
     "parameter 'frequency_quadrature_point_number' must be an integer, get type {} instead."
 ANGULAR_MOMENTUM_CUTOFF_TYPE_ERROR = \
@@ -1060,6 +1062,7 @@ class SCFDriver:
         hybrid_mixing_parameter           : Optional[float]                  = None,
         ops_builder_oep                   : Optional[RadialOperatorsBuilder] = None,
         oep_mixing_parameter              : Optional[float]                  = None,
+        oep_boundary_radius               : Optional[float]                  = None,
         frequency_quadrature_point_number : Optional[int]                    = None,  # parameter for RPA correlation potential
         angular_momentum_cutoff           : Optional[int]                    = None,  # parameter for RPA functional only
         enable_parallelization            : Optional[bool]                   = None,  # parameter for RPA calculations only
@@ -1100,6 +1103,9 @@ class SCFDriver:
             Dedicated operators builder for OEP basis/projectors. It must be provided when OEP is enabled, otherwise it will be ignored.
         oep_mixing_parameter : float, optional
             Scaling parameter (λ) applied to OEP exchange/correlation potentials.
+        oep_boundary_radius : float, optional
+            Radius (Bohr) beyond which the OEP potential is replaced by
+            ``-f_h/r``. Defaults to 9 Bohr inside ``OEPCalculator``.
         frequency_quadrature_point_number : int, optional
             Number of frequency quadrature points for RPA correlation potential.
         angular_momentum_cutoff : int, optional
@@ -1132,7 +1138,8 @@ class SCFDriver:
         self.hybrid_mixing_parameter           = hybrid_mixing_parameter 
         self.use_oep                           = use_oep
         self.ops_builder_oep                   = ops_builder_oep
-        self.oep_mixing_parameter              = oep_mixing_parameter 
+        self.oep_mixing_parameter              = oep_mixing_parameter
+        self.oep_boundary_radius               = oep_boundary_radius
         self.frequency_quadrature_point_number = frequency_quadrature_point_number
         self.angular_momentum_cutoff           = angular_momentum_cutoff
         self.enable_parallelization            = enable_parallelization
@@ -1213,6 +1220,9 @@ class SCFDriver:
         if self.oep_mixing_parameter is not None:
             assert isinstance(self.oep_mixing_parameter, (float, np.floating)), \
                 OEP_MIXING_PARAMETER_TYPE_ERROR.format(type(self.oep_mixing_parameter))
+        if self.oep_boundary_radius is not None:
+            assert isinstance(self.oep_boundary_radius, (float, np.floating, int, np.integer)), \
+                OEP_BOUNDARY_RADIUS_TYPE_ERROR.format(type(self.oep_boundary_radius))
         if self.frequency_quadrature_point_number is not None:
             assert isinstance(self.frequency_quadrature_point_number, int), \
                 FREQUENCY_QUADRATURE_POINT_NUMBER_TYPE_ERROR.format(type(self.frequency_quadrature_point_number))
@@ -1325,6 +1335,7 @@ class SCFDriver:
             use_rpa_correlation               = self.switches.use_oep_correlation,
             frequency_quadrature_point_number = self.frequency_quadrature_point_number,
             angular_momentum_cutoff           = self.angular_momentum_cutoff,
+            oep_boundary_radius               = self.oep_boundary_radius,
         )
 
         return oep_calculator
