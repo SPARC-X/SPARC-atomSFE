@@ -28,6 +28,8 @@ from .rpa import RPACorrelation, ValidRadialCoulombKernelType
 from ..utils.occupation_states import OccupationInfo
 from ..mesh.operators import RadialOperatorsBuilder
 
+# Pin v_x for r >= this radius (Bohr). Solver default for oep_boundary_radius.
+DEFAULT_EXX_TAIL_R_C = 9.0
 
 # Error messages
 USE_RPA_CORRELATION_NOT_BOOL_ERROR = \
@@ -76,6 +78,12 @@ ANGULAR_MOMENTUM_CUTOFF_NOT_INTEGER_ERROR = \
     "Parameter angular_momentum_cutoff must be a non-negative integer, get {} instead."
 ANGULAR_MOMENTUM_CUTOFF_NOT_CONSISTENT_WITH_SPECTRUM_ERROR = \
     "Parameter angular_momentum_cutoff is {}, but the supplied spectrum spans l up to {}. The spectrum must be rebuilt whenever the cutoff changes."
+OEP_BOUNDARY_RADIUS_NOT_FLOAT_ERROR = \
+    "Parameter oep_boundary_radius must be a float, get type {} instead."
+OEP_BOUNDARY_RADIUS_NOT_GREATER_THAN_0_ERROR = \
+    "Parameter oep_boundary_radius must be greater than 0, get {} instead."
+NO_OCCUPIED_FRONTIER_SUBSHELL_ERROR = \
+    "Cannot select a frontier radial subshell: every occupation is non-positive."
 
 # WARNING Messages
 FREQUENCY_QUADRATURE_POINT_NUMBER_NOT_NONE_WHEN_RPA_CORRELATION_IS_NOT_USED_WARNING = \
@@ -97,6 +105,7 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
         frequency_quadrature_point_number : Optional[int] = None,  # parameters for RPA correlation potential
         angular_momentum_cutoff           : Optional[int] = None,  # highest l channel present in the supplied spectrum
         radial_coulomb_kernel_apply       : ValidRadialCoulombKernelType = "differential_equation",
+        oep_boundary_radius               : Optional[float] = None,
     ):
 
         """
@@ -116,6 +125,11 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
             equation in the FE basis; 'direct_integration' uses the analytic multipole
             kernel, which needs a much higher radial quadrature order, growing with Z.
             Same labels as ExchangeMethod in hf.py.
+        oep_boundary_radius : float, optional
+            Radius (Bohr) beyond which the OEP potential is replaced by
+            ``-f_h/r``. ``f_h`` is the occupation of the occupied subshell
+            with the largest eigenvalue, divided by ``2(2l_h+1)``.
+            Defaults to ``DEFAULT_EXX_TAIL_R_C`` (9 Bohr).
         """
         assert isinstance(ops_builder, RadialOperatorsBuilder), \
             OPS_BUILDER_NOT_RADIAL_OPERATORS_BUILDER_ERROR.format(type(ops_builder))
@@ -148,6 +162,14 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
         self.occupations  : np.ndarray = self.occupation_info.occupations
         self.occ_l_values : np.ndarray = self.occupation_info.l_values
         self.occ_n_values : np.ndarray = self.occupation_info.n_values
+
+        if oep_boundary_radius is None:
+            oep_boundary_radius = DEFAULT_EXX_TAIL_R_C
+        assert isinstance(oep_boundary_radius, (int, float, np.integer, np.floating)), \
+            OEP_BOUNDARY_RADIUS_NOT_FLOAT_ERROR.format(type(oep_boundary_radius))
+        self.oep_boundary_radius = float(oep_boundary_radius)
+        assert self.oep_boundary_radius > 0.0, \
+            OEP_BOUNDARY_RADIUS_NOT_GREATER_THAN_0_ERROR.format(self.oep_boundary_radius)
 
         # Ill_conditioned warning
         self.ill_conditioned_warning_caught_times_for_exchange : int = 0
@@ -302,15 +324,18 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
         )
 
 
-        # Apply -1/r boundary condition for r >= 9 Bohr
+        # Apply -f_h/r boundary condition for r >= oep_boundary_radius
         r_oep_nodes         = self.ops_builder_oep.physical_nodes
-        r_cutoff            = 9.0
+        r_cutoff            = self.oep_boundary_radius
         tail_is_replaceable = bool(np.any(r_oep_nodes >= r_cutoff))
+        occ_energies        = full_eigen_energies[:len(self.occ_l_values)]
+        f_h                 = self._frontier_occupation_fraction(occ_energies)
 
         oep_coefficient = self._apply_minus_one_over_r_boundary_condition(
             coefficient = oep_coefficient,
             r_nodes     = r_oep_nodes,
             r_cutoff    = r_cutoff,
+            prefactor   = f_h,
         )
 
         # compute the OEP exchange potential
@@ -318,9 +343,9 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
 
         # Domain shorter than r_cutoff: no node was replaced above, so the additive
         # constant left free by chi_0 is still unfixed.  Pin it by shifting the potential
-        # so the outermost quadrature point sits on -1/r.
+        # so the outermost quadrature point sits on -f_h/r.
         if not tail_is_replaceable:
-            v_x_oep = v_x_oep - v_x_oep[-1] - 1.0 / self.quadrature_nodes[-1]
+            v_x_oep = v_x_oep - v_x_oep[-1] - f_h / self.quadrature_nodes[-1]
 
 
         ### =========================================== ###
@@ -362,20 +387,21 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
                 ex_tag       = 'exchange_correlation'
             )
 
-            # Apply -1/r boundary condition for r >= 9 Bohr
+            # Apply -f_h/r boundary condition for r >= oep_boundary_radius
             hf_exchange_plus_rpa_correlation_coefficient = self._apply_minus_one_over_r_boundary_condition(
                 coefficient = hf_exchange_plus_rpa_correlation_coefficient,
                 r_nodes     = r_oep_nodes,
                 r_cutoff    = r_cutoff,
+                prefactor   = f_h,
             )
 
             # Compute the HF exchange + RPA correlation potential
             v_xc_oep = global_interpolation_matrix @ hf_exchange_plus_rpa_correlation_coefficient
 
-            # same fix as for the exchange potential; pinning both to -1/r at the
+            # same fix as for the exchange potential; pinning both to -f_h/r at the
             # outermost point makes the correlation potential vanish there
             if not tail_is_replaceable:
-                v_xc_oep = v_xc_oep - v_xc_oep[-1] - 1.0 / self.quadrature_nodes[-1]
+                v_xc_oep = v_xc_oep - v_xc_oep[-1] - f_h / self.quadrature_nodes[-1]
 
             # Compute the RPA correlation potential
             v_c_oep = v_xc_oep - v_x_oep
@@ -503,18 +529,32 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
         return oep_coefficient
 
 
+    def _frontier_occupation_fraction(self, occ_energies: np.ndarray) -> float:
+        """Occupation of the highest occupied subshell, divided by ``2(2l_h+1)``."""
+        n_occ = min(int(self.occupations.size), int(np.asarray(occ_energies).size))
+        g = np.asarray(self.occupations[:n_occ], dtype=float)
+        occupied = g > 0.0
+        assert bool(np.any(occupied)), NO_OCCUPIED_FRONTIER_SUBSHELL_ERROR
+        energies = np.asarray(occ_energies[:n_occ], dtype=float)
+        energies_masked = np.where(occupied, energies, -np.inf)
+        h = int(np.argmax(energies_masked))
+        g_h = float(self.occupations[h])
+        l_h = int(self.occ_l_values[h])
+        return g_h / (2.0 * (2 * l_h + 1))
+
+
     @staticmethod
     def _apply_minus_one_over_r_boundary_condition(
         coefficient : np.ndarray,
         r_nodes     : np.ndarray,
         r_cutoff    : float = 9.0,
+        prefactor   : float = 1.0,
     ) -> np.ndarray:
         """
-        Apply -1/r boundary condition for r >= r_cutoff Bohr.
+        Apply ``-prefactor/r`` boundary condition for r >= r_cutoff Bohr.
 
-        This function modifies the OEP coefficients to enforce the -1/r asymptotic
-        behavior at large distances, which is required for the correct long-range
-        behavior of the OEP potential.
+        The default ``prefactor`` is the frontier-subshell occupation fraction
+        ``f_h``. Closed shells have ``f_h = 1``, which recovers ``-1/r``.
 
         Parameters
         ----------
@@ -524,7 +564,9 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
             Radial grid nodes, shape (n_nodes,)
         r_cutoff : float
             Cutoff radius in Bohr, default is 9.0
-            For r >= r_cutoff, coefficients are set to -1/r
+            For r >= r_cutoff, coefficients are set to ``-prefactor/r``
+        prefactor : float
+            Monopole coefficient ``f_h``. Defaults to 1.0.
 
         Returns
         -------
@@ -536,13 +578,11 @@ class OEPCalculator(HartreeFockExchange, RPACorrelation):
 
         r_geq_cutoff_indices = np.argwhere(r_nodes >= r_cutoff)[:, 0]
         if len(r_geq_cutoff_indices) > 0:
-            # Set coefficients to -1/r for r >= r_cutoff
-            coefficient[r_geq_cutoff_indices] = -1.0 / r_nodes[r_geq_cutoff_indices]
-            # Adjust coefficients for r < r_cutoff to maintain continuity
+            coefficient[r_geq_cutoff_indices] = -prefactor / r_nodes[r_geq_cutoff_indices]
             if r_geq_cutoff_indices[0] > 0:
                 coefficient[:r_geq_cutoff_indices[0]] = \
                     coefficient[:r_geq_cutoff_indices[0]] + \
-                    (-1.0 / r_nodes[r_geq_cutoff_indices[0] - 1] - coefficient[r_geq_cutoff_indices[0] - 1])
+                    (-prefactor / r_nodes[r_geq_cutoff_indices[0] - 1] - coefficient[r_geq_cutoff_indices[0] - 1])
 
         return coefficient
 

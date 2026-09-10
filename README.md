@@ -131,15 +131,21 @@ pip install -e .
 
 ## Citing SPARC-atomSFE
 
-If you use this code in your research, please cite the repository:
+If you use this code in your research, please cite the Computer Physics Communications article:
+
+Q. Cheng, S. K. Trivedi, and P. Suryanarayana, SPARC-atomSFE: Spectral finite-element package for atomic structure calculations in density functional theory, *Comput. Phys. Commun.* **328**, 110339 (2026). [doi:10.1016/j.cpc.2026.110339](https://doi.org/10.1016/j.cpc.2026.110339)
 
 ```
-@software{sparc_atomsfe_placeholder,
-  author = {TBD},
-  title = {TBD},
-  url = {TBD},
-  version = {TBD},
-  year = {TBD},
+@article{cheng2026sparcatomsfe,
+  title={{SPARC-atomSFE}: Spectral finite-element package for atomic structure calculations in density functional theory},
+  author={Cheng, Qihao and Trivedi, Shubhang Krishnakant and Suryanarayana, Phanish},
+  journal={Computer Physics Communications},
+  volume={328},
+  pages={110339},
+  year={2026},
+  issn={0010-4655},
+  doi={10.1016/j.cpc.2026.110339},
+  url={https://www.sciencedirect.com/science/article/pii/S0010465526003218}
 }
 ```
 
