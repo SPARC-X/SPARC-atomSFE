@@ -99,6 +99,10 @@ CONSTANTS_CALLER_NOT_VALID_ERROR = \
     "Parameter `caller` must be one of 'energy' or 'potential', get {} instead."
 RADIAL_COULOMB_KERNEL_APPLY_NOT_VALID_ERROR = \
     "Parameter `radial_coulomb_kernel_apply` must be one of 'differential_equation' or 'direct_integration', get {} instead."
+RPA_LOG1P_EIGENVALUE_GE_ONE_ERROR = \
+    "RPA ln(1 - λ) is undefined: an eigenvalue of ν χ₀ is {}, which is ≥ 1."
+RPA_LOG1P_TABLE_OCCUPATION_HINT = \
+    " occupation_rule is 'table'; try occupation_rule='aufbau' so the subshells are refilled from the eigenvalues."
 
 ValidGridType                = Literal["sinh", "algebraic"]
 ValidBaseRule                = Literal["midpoint", "trapezoid", "clenshaw_curtis",
@@ -710,6 +714,24 @@ class RPACorrelation:
     #  ENERGY PATH
     # =================================================================================
 
+    def _log1p_minus_eigenvalues(self, eigenvalues: np.ndarray) -> np.ndarray:
+        """
+        ln(1 - λ) for the RPA integrand f(λ) = ln(1 - λ) + λ.
+
+        Physically every λ of ν χ₀ is ≤ 0, so the logarithm is real. A λ ≥ 1
+        makes ln(1 - λ) undefined on the reals; tabulated occupations that do
+        not follow the Kohn-Sham order are a common cause.
+        """
+        eigenvalues = np.asarray(eigenvalues, dtype=float)
+        if eigenvalues.size:
+            lam_max = float(np.max(eigenvalues))
+            if lam_max >= 1.0:
+                message = RPA_LOG1P_EIGENVALUE_GE_ONE_ERROR.format(lam_max)
+                if self.occupation_info.occupation_rule == "table":
+                    message = message + RPA_LOG1P_TABLE_OCCUPATION_HINT
+                raise ValueError(message)
+        return np.log1p(-eigenvalues)
+
     def _compute_correlation_energy_per_L_omega(
         self, frequency, active_l_couple, coulomb_factor, occ_orbitals, full_orbitals,
         occ_l_values, occ_all_constants, delta_eps_squared, wigner_symbols_squared,
@@ -756,7 +778,7 @@ class RPACorrelation:
         eigenvalues = np.linalg.eigvalsh(screened)
 
         return (1 / (2 * np.pi)) * (2 * active_l_couple + 1) * \
-            float(np.sum(np.log1p(-eigenvalues) + eigenvalues))
+            float(np.sum(self._log1p_minus_eigenvalues(eigenvalues) + eigenvalues))
 
     def compute_correlation_energy(
         self,
@@ -918,10 +940,11 @@ class RPACorrelation:
         # the result is then contracted against a chi_0 that is vanishing there too.
         # lam <= 0 throughout (nu is PSD, chi_0 at imaginary frequency is NSD), so
         # ln(1-lam) never sees a non-positive argument.
+        log1p_minus = self._log1p_minus_eigenvalues(eigenvalues)
         g_values = np.zeros_like(eigenvalues)
         nonzero = eigenvalues != 0.0
         lam_nonzero = eigenvalues[nonzero]
-        g_values[nonzero] = (np.log1p(-lam_nonzero) + lam_nonzero) / lam_nonzero
+        g_values[nonzero] = (log1p_minus[nonzero] + lam_nonzero) / lam_nonzero
 
         # diag f(nu.chi_0) = diag([G g(S) G^T] chi_0), a row sum of the Hadamard product
         # since chi_0 is symmetric.  The (n_quad, n_quad) product is formed once and
@@ -934,7 +957,7 @@ class RPACorrelation:
             (2 * active_l_couple + 1) * diagonal_f
 
         energy_contribution = (1 / (2 * np.pi)) * (2 * active_l_couple + 1) * \
-            float(np.sum(np.log1p(-eigenvalues) + eigenvalues))
+            float(np.sum(log1p_minus + eigenvalues))
 
         return density_contribution, energy_contribution
 

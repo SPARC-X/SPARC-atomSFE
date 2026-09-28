@@ -131,6 +131,16 @@ ALL_ELECTRON_FLAG_NOT_BOOL_ERROR = \
     "parameter 'all_electron_flag' must be a boolean, get {} instead."
 SPIN_POLARIZED_FLAG_NOT_BOOL_ERROR = \
     "parameter 'spin_polarized_flag' must be a boolean, get {} instead."
+OCCUPATION_RULE_NOT_STR_ERROR = \
+    "parameter 'occupation_rule' must be a str, get type {} instead."
+OCCUPATION_RULE_INVALID_ERROR = \
+    "parameter 'occupation_rule' must be one of {{{}}}, get '{}' instead."
+OCCUPATION_RULE_AUFBAU_SPIN_POLARIZED_ERROR = \
+    "parameter 'occupation_rule' is 'aufbau', which is only implemented for spin_polarized_flag=False."
+OCCUPATION_SMEARING_NOT_FLOAT_ERROR = \
+    "parameter 'occupation_smearing' must be a float, get type {} instead."
+OCCUPATION_SMEARING_NEGATIVE_ERROR = \
+    "parameter 'occupation_smearing' must be greater than or equal to 0, get {} instead."
 XC_FUNCTIONAL_NOT_STRING_ERROR = \
     "parameter 'xc_functional' must be a string, get {} instead."
 XC_FUNCTIONAL_TYPE_ERROR_MESSAGE = \
@@ -333,6 +343,8 @@ EVALUATE_BASIS_ON_UNIFORM_GRID_NOT_BOOL_ERROR = \
 # WARNING Messages
 MESH_CONCENTRATION_NOT_NONE_FOR_UNIFORM_MESH_TYPE_WARNING = \
     "WARNING: parameter 'mesh_concentration' is not None for uniform mesh type, so it will be ignored."
+OCCUPATION_SMEARING_NOT_NONE_FOR_TABLE_RULE_WARNING = \
+    "WARNING: parameter 'occupation_smearing' is not None when 'occupation_rule' is 'table', so it will be ignored."
 MAX_SCF_ITERATIONS_OUTER_NOT_NONE_AND_NOT_ONE_FOR_XC_FUNCTIONAL_OTHER_THAN_OUTER_LOOP_LIST_WARNING = \
     "WARNING: parameter 'max_scf_iterations_outer' is not None and not 1 for XC functional '{}' which does not require outer loop, so it will be ignored."
 PULAY_MIXING_PARAMETER_NOT_NONE_WHEN_USE_PULAY_MIXING_IS_FALSE_WARNING = \
@@ -487,6 +499,8 @@ class AtomicDFTSolver:
     psp_file_name                     : str   # Name of the pseudopotential file (required when all_electron_flag=False)
     
     # Advanced functional parameters (for EXX, RPA, etc.)
+    occupation_rule                   : str   # 'table': fixed table occupations (default); 'aufbau': refilled in eigenvalue order every SCF iteration
+    occupation_smearing               : Optional[float] # Fermi-Dirac kT (Ha) for occupation_rule='aufbau'; None for 'table'
     hybrid_mixing_parameter           : float # Mixing parameter for hybrid/double-hybrid functionals (e.g., 0.25 for PBE0)
     frequency_quadrature_point_number : int   # Number of frequency quadrature points for RPA calculations
     angular_momentum_cutoff           : int   # Maximum angular momentum quantum number to include
@@ -535,6 +549,8 @@ class AtomicDFTSolver:
         psp_dir_path                      : Optional[str]            = None,   # ../psps by default
         psp_file_name                     : Optional[str]            = None,   # {atomic_number}.psp8 by default
 
+        occupation_rule                   : Optional[str]            = None,   # 'table' by default; 'aufbau' fills subshells in eigenvalue order
+        occupation_smearing               : Optional[float]          = None,   # Fermi-Dirac kT (Ha) for 'aufbau', 1e-3 by default; 0 fills strictly
         hybrid_mixing_parameter           : Optional[float]          = None,   # 1.0 by default (0.25 for PBE0, variable for RPA)
         frequency_quadrature_point_number : Optional[int]            = None,   # for RPA, 25 by default, otherwise not needed
         angular_momentum_cutoff           : Optional[int]            = None,   # for RPA, 4 by default, otherwise not needed
@@ -627,6 +643,18 @@ class AtomicDFTSolver:
 
         Advanced functional parameters (for EXX, RPA, etc.)
         --------------------------------------------------
+        `occupation_rule` : {'table', 'aufbau'}
+            How the subshell occupations are set. ``table`` (default) keeps the tabulated
+            configuration of OccupationInfo for the whole SCF, the original behavior.
+            ``aufbau`` adds two empty candidate subshells per channel l <= min(l_max+1, 3)
+            and refills all subshells from their eigenvalues every SCF iteration,
+            N_i = 2(2l_i+1) f_FD((eps_i - mu)/kT), as 3D codes fill bands (M-SPARC
+            src/occupations.m). Spin-unpolarized only. Validated with GGA; the chi_0
+            Pulay preconditioner is off by default here (it lacks the df/deps term).
+        `occupation_smearing` : float
+            Fermi-Dirac kT in Ha for ``occupation_rule='aufbau'``. Defaults to 1e-3
+            (315.8 K). 0 fills strictly in eigenvalue order, the last subshell fractionally.
+            Ignored for ``table``.
         `hybrid_mixing_parameter` : float
             Mixing parameter for hybrid functionals (e.g., 0.25 for PBE0). Defaults based on functional.
         `frequency_quadrature_point_number` : int
@@ -696,7 +724,9 @@ class AtomicDFTSolver:
         self.ground_state_functional           = ground_state_functional
         self.psp_file_name                     = psp_file_name
 
-        self.hybrid_mixing_parameter           = hybrid_mixing_parameter 
+        self.occupation_rule                   = occupation_rule
+        self.occupation_smearing               = occupation_smearing
+        self.hybrid_mixing_parameter           = hybrid_mixing_parameter
         self.frequency_quadrature_point_number = frequency_quadrature_point_number
         self.angular_momentum_cutoff           = angular_momentum_cutoff
         self.double_hybrid_flag                = False
@@ -729,6 +759,8 @@ class AtomicDFTSolver:
             z_valence         = self.pseudo.z_valence,
             all_electron_flag = self.all_electron_flag,
             n_electrons       = self.n_electrons)
+        if self.occupation_rule == "aufbau":
+            self.occupation_info.enable_aufbau_occupation(smearing = self.occupation_smearing)
         if self.verbose:
             self.occupation_info.print_info()
 
@@ -830,6 +862,8 @@ class AtomicDFTSolver:
             "psp_file_name"                     : "psp_file_name",
 
             # Advanced functional parameters (for EXX, RPA, etc.)
+            "occupation_rule"                   : "occupation_rule",
+            "occupation_smearing"               : "occupation_smearing",
             "hybrid_mixing_parameter"           : "hybrid_mixing_parameter",
             "frequency_quadrature_point_number" : "frequency_quadrature_point_number",
             "angular_momentum_cutoff"           : "angular_momentum_cutoff",
@@ -934,6 +968,28 @@ class AtomicDFTSolver:
 
         # Spin-polarized runs are not exposed on AtomicDFTSolver in this build.
         self.spin_polarized_flag = False
+
+        # occupation rule and smearing
+        if self.occupation_rule is None:
+            self.occupation_rule = "table"
+        assert isinstance(self.occupation_rule, str), \
+            OCCUPATION_RULE_NOT_STR_ERROR.format(type(self.occupation_rule))
+        if self.occupation_rule not in ("table", "aufbau"):
+            raise ValueError(OCCUPATION_RULE_INVALID_ERROR.format("table, aufbau", self.occupation_rule))
+        if self.occupation_rule == "aufbau":
+            if self.spin_polarized_flag:
+                raise ValueError(OCCUPATION_RULE_AUFBAU_SPIN_POLARIZED_ERROR)
+            if self.occupation_smearing is None:
+                self.occupation_smearing = 1.0e-3
+            if isinstance(self.occupation_smearing, int):
+                self.occupation_smearing = float(self.occupation_smearing)
+            assert isinstance(self.occupation_smearing, float), \
+                OCCUPATION_SMEARING_NOT_FLOAT_ERROR.format(type(self.occupation_smearing))
+            assert self.occupation_smearing >= 0.0, \
+                OCCUPATION_SMEARING_NEGATIVE_ERROR.format(self.occupation_smearing)
+        elif self.occupation_smearing is not None:
+            print(OCCUPATION_SMEARING_NOT_NONE_FOR_TABLE_RULE_WARNING)
+            self.occupation_smearing = None
 
         # xc functional (ML-XC path disabled at solver boundary in this build)
         if self.xc_functional is None:
@@ -1141,7 +1197,13 @@ class AtomicDFTSolver:
 
         # use preconditioner flag
         if self.use_preconditioner is None:
-            self.use_preconditioner = True if self.use_pulay_mixing else False
+            # The chi_0 dielectric preconditioner has no Fermi-surface (df/deps) term, which
+            # dominates for fractional 'aufbau' occupations and stalls the SCF, so 'aufbau'
+            # defaults to plain Pulay mixing. 'table' keeps the original default.
+            if self.occupation_rule == "aufbau":
+                self.use_preconditioner = False
+            else:
+                self.use_preconditioner = True if self.use_pulay_mixing else False
         if self.use_preconditioner in [0, 1]:
             self.use_preconditioner = False if self.use_preconditioner == 0 else True
         assert isinstance(self.use_preconditioner, bool), \
@@ -1407,7 +1469,7 @@ class AtomicDFTSolver:
         # Be careful! This output can also be used to initialize the AtomicDFTSolver from output files!
         #     So, do not change the format of this output! Or if you want to change, please update the from_output_file method!
         print("===========================================================================")
-        print("*                  SPARC-atomSFE  (version Sept 09, 2026)                 *")
+        print("*                  SPARC-atomSFE  (version Sept 28, 2026)                 *")
         print("*   Copyright (c) 2026 Material Physics & Mechanics Group, Georgia Tech   *")
         print("*           Distributed under GNU General Public License 3 (GPL)          *")
         print("*                   Start time: {}                  *".format(get_sparc_time_string())) # Do not change the length for this line
@@ -1449,6 +1511,8 @@ class AtomicDFTSolver:
         print("\t psp_file_name                     : {}".format(self.psp_file_name))
 
         # Advanced functional parameters (for EXX, RPA, etc.)
+        print("\t occupation_rule                   : {}".format(self.occupation_rule))
+        print("\t occupation_smearing               : {}".format(self.occupation_smearing))
         print("\t hybrid_mixing_parameter           : {}".format(self.hybrid_mixing_parameter))
         print("\t frequency_quadrature_point_number : {}".format(self.frequency_quadrature_point_number))
         print("\t angular_momentum_cutoff           : {}".format(self.angular_momentum_cutoff))
