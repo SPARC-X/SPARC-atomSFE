@@ -3,6 +3,8 @@
 
 import numpy as np
 from typing import Optional, Tuple
+from scipy.optimize import brentq
+from scipy.special import expit
 
 
 '''
@@ -42,6 +44,24 @@ Z_NUCLEAR_NOT_INTEGER_VALUED_FOR_PSEUDOPOTENTIAL_CALCULATION_ERROR = \
     "parameter 'z_nuclear' must be integer-valued for pseudopotential calculations, get {} instead."
 TOTAL_OCCUPATION_NUMBERS_DO_NOT_MATCH_THE_NUMBER_OF_ELECTRONS_ERROR = \
     "Total occupation numbers do not match the number of electrons {} != {}, this should not happen."
+OCC_ENERGIES_SIZE_MISMATCH_FOR_HOMO_FRACTION_ERROR = \
+    "occ_energies has {} entries but the occupation list has {} subshells."
+AUFBAU_SMEARING_NOT_NON_NEGATIVE_FLOAT_ERROR = \
+    "parameter 'smearing' must be a non-negative float (Fermi-Dirac kT in Ha), get {} instead."
+AUFBAU_L_MAX_NOT_NON_NEGATIVE_INT_ERROR = \
+    "parameter 'l_max' must be a non-negative integer, get {} instead."
+AUFBAU_N_CANDIDATES_NOT_POSITIVE_INT_ERROR = \
+    "parameter 'n_candidates_per_channel' must be a positive integer, get {} instead."
+AUFBAU_CAPACITY_TOO_SMALL_ERROR = \
+    "aufbau candidate subshells hold {} electrons, not more than the {} electrons to place."
+AUFBAU_SET_OCCUPATIONS_TABLE_RULE_ERROR = \
+    "set_occupations needs occupation_rule 'aufbau' (float occupation arrays); this list uses '{}'."
+AUFBAU_OCCUPATION_LIST_MISMATCH_ERROR = \
+    "occupations to set have (n, l) = {} but this occupation list has (n, l) = {}."
+AUFBAU_OCCUPATION_SUM_MISMATCH_ERROR = \
+    "occupations to set hold {} electrons, but this occupation list holds {}."
+AUFBAU_TOP_CANDIDATE_OCCUPIED_WARNING = \
+    "WARNING: aufbau occupation puts {:.3e} electrons in {}, the highest candidate subshell of channel l={}; the candidate list may be too short."
 
 
 
@@ -659,6 +679,12 @@ class OccupationInfo:
     occ_spin_up                : np.ndarray   # Spin-up occupation for each orbital
     occ_spin_down              : np.ndarray   # Spin-down occupation for each orbital
     occ_spin_up_plus_spin_down : np.ndarray   # Total occupation (spin-up + spin-down)
+    occupation_rule            : str          # 'table' (fixed, default) or 'aufbau' (eigenvalue order)
+    occupation_smearing        : Optional[float]  # Fermi-Dirac kT (Ha) for 'aufbau', None for 'table'
+
+    # Fermi-Dirac tails below this many electrons per subshell are set to exactly zero, so
+    # "occupied" (occupations > 0, e.g. the OEP frontier choice) keeps its meaning.
+    AUFBAU_OCCUPATION_FLOOR = 1.0e-12
 
 
     def __init__(self, 
@@ -724,6 +750,13 @@ class OccupationInfo:
         else:
             assert np.sum(self.occ_spin_up_plus_spin_down) == self.z_valence, \
                 TOTAL_OCCUPATION_NUMBERS_DO_NOT_MATCH_THE_NUMBER_OF_ELECTRONS_ERROR.format(np.sum(self.occ_spin_up_plus_spin_down), self.z_valence)
+
+        # Occupation rule. 'table' (default) keeps the occupations above for the whole SCF.
+        # 'aufbau' refills the subshells from their eigenvalues every SCF iteration, see
+        # enable_aufbau_occupation and update_occupations_from_eigenvalues.
+        self.occupation_rule     : str             = "table"
+        self.occupation_smearing : Optional[float] = None
+        self._aufbau_warned_channels : set         = set()
 
 
 
@@ -867,6 +900,226 @@ class OccupationInfo:
 
 
 
+    def enable_aufbau_occupation(
+        self,
+        smearing                 : float         = 1.0e-3,
+        l_max                    : Optional[int] = None,
+        n_candidates_per_channel : int           = 2,
+    ) -> None:
+        """
+        Switch to eigenvalue-ordered (Aufbau) occupations.
+
+        n_candidates_per_channel empty subshells are appended to every channel l = 0..l_max:
+        the next n above the listed ones, or n = l+1, l+2, ... for a channel with no listed
+        subshell. A level the table leaves empty (3d of Ti2+, 4f of La, 5f of Th) can then
+        take electrons, and the last candidate of each channel stays empty unless the list
+        is too short (see warn_if_aufbau_candidates_occupied). Every
+        SCF iteration, update_occupations_from_eigenvalues refills all listed subshells from
+        their eigenvalues, the way 3D codes fill bands (M-SPARC src/occupations.m):
+
+            N_i = 2(2l_i+1) / (1 + exp((eps_i - mu)/kT)),   sum_i N_i = n_free_electrons,
+
+        with kT = smearing (Ha). smearing = 0 fills strictly in eigenvalue order, the last
+        subshell fractionally. The candidates come after the table entries, so each channel
+        stays in ascending n and the per-l state mapping of the SCF driver is unchanged.
+
+        Parameters
+        ----------
+        smearing : float
+            Fermi-Dirac kT in Ha. Default 1e-3 (315.8 K, the M-SPARC isolated-atom setting).
+        l_max : int, optional
+            Highest channel that gets candidates. Default min(max listed l + 1, 3).
+        n_candidates_per_channel : int
+            Empty subshells appended per channel. Default 2.
+        """
+        assert isinstance(smearing, (int, float)) and smearing >= 0.0, \
+            AUFBAU_SMEARING_NOT_NON_NEGATIVE_FLOAT_ERROR.format(smearing)
+        if l_max is None:
+            l_max = min(int(np.max(self.occ_l)) + 1, 3)
+        assert isinstance(l_max, (int, np.integer)) and l_max >= 0, \
+            AUFBAU_L_MAX_NOT_NON_NEGATIVE_INT_ERROR.format(l_max)
+        assert isinstance(n_candidates_per_channel, (int, np.integer)) and n_candidates_per_channel >= 1, \
+            AUFBAU_N_CANDIDATES_NOT_POSITIVE_INT_ERROR.format(n_candidates_per_channel)
+
+        occ_n = [int(n) for n in self.occ_n]
+        occ_l = [int(l) for l in self.occ_l]
+        for l in range(int(l_max) + 1):
+            n_in_channel = [n for n, l_i in zip(occ_n, occ_l) if l_i == l]
+            n_first = max(n_in_channel) + 1 if n_in_channel else l + 1
+            for k in range(int(n_candidates_per_channel)):
+                occ_n.append(n_first + k)
+                occ_l.append(l)
+        n_added = len(occ_n) - len(self.occ_n)
+
+        self.occ_n         = np.asarray(occ_n, dtype=np.asarray(self.occ_n).dtype)
+        self.occ_l         = np.asarray(occ_l, dtype=np.asarray(self.occ_l).dtype)
+        # Spin-unpolarized: only the sum matters, so the table's Hund split is dropped and
+        # both spins carry half of each subshell.
+        total = np.concatenate([np.asarray(self.occ_spin_up_plus_spin_down, dtype=float), np.zeros(n_added)])
+        self.occ_spin_up   = 0.5 * total
+        self.occ_spin_down = 0.5 * total
+        self.occ_spin_up_plus_spin_down = self.occ_spin_up + self.occ_spin_down
+
+        self.occupation_rule      = "aufbau"
+        self.occupation_smearing  = float(smearing)
+        self._aufbau_n_electrons  = float(np.sum(self.occ_spin_up_plus_spin_down))
+
+
+    def update_occupations_from_eigenvalues(
+        self,
+        occ_energies : np.ndarray,
+    ) -> None:
+        """
+        Refill the subshells from their eigenvalues (occupation_rule 'aufbau' only).
+
+        occ_energies are the subshell eigenvalues in this occupation order (the SCF driver's
+        occ_eigenvalues). The occupation arrays are updated IN PLACE: the density, response
+        and OEP calculators hold references to them. No-op for occupation_rule 'table'.
+        """
+        if self.occupation_rule != "aufbau":
+            return
+        energies = np.asarray(occ_energies, dtype=float).reshape(-1)
+        if energies.size != self.occupations.size:
+            raise ValueError(
+                OCC_ENERGIES_SIZE_MISMATCH_FOR_HOMO_FRACTION_ERROR.format(energies.size, self.occupations.size)
+            )
+        degeneracy = 2.0 * (2 * np.asarray(self.occ_l, dtype=float) + 1)
+        total = self.fermi_dirac_subshell_occupations(
+            energies    = energies,
+            degeneracy  = degeneracy,
+            n_electrons = self._aufbau_n_electrons,
+            smearing    = self.occupation_smearing,
+        )
+        # drop the far Fermi-Dirac tails and restore the electron count exactly
+        total[total < self.AUFBAU_OCCUPATION_FLOOR] = 0.0
+        total *= self._aufbau_n_electrons / float(np.sum(total))
+        self.occ_spin_up[:]                = 0.5 * total
+        self.occ_spin_down[:]              = 0.5 * total
+        self.occ_spin_up_plus_spin_down[:] = total
+
+
+
+    def warn_if_aufbau_candidates_occupied(
+        self,
+        threshold : float = 1.0e-3,
+    ) -> None:
+        """
+        Warn (once per channel) when the last listed subshell of a channel holds more than
+        `threshold` electrons: the next level of that channel is then missing from the list.
+        Called by the SCF driver after the inner loop, so early SCF transients do not warn.
+        No-op for occupation_rule 'table'.
+        """
+        if self.occupation_rule != "aufbau":
+            return
+        for l in np.unique(self.occ_l):
+            top = int(np.nonzero(self.occ_l == l)[0][-1])
+            if self.occupations[top] > threshold and int(l) not in self._aufbau_warned_channels:
+                print(AUFBAU_TOP_CANDIDATE_OCCUPIED_WARNING.format(
+                    self.occupations[top], "{}{}".format(int(self.occ_n[top]), "spdfghik"[int(l)]), int(l)))
+                self._aufbau_warned_channels.add(int(l))
+
+
+    def occupation_table(self) -> np.ndarray:
+        """(n_subshells, 3) array of n, l and the total subshell occupation, in list order."""
+        return np.column_stack([
+            np.asarray(self.occ_n, dtype=float),
+            np.asarray(self.occ_l, dtype=float),
+            np.asarray(self.occupations, dtype=float),
+        ])
+
+
+    def set_occupations(
+        self,
+        occ_n       : np.ndarray,
+        occ_l       : np.ndarray,
+        occupations : np.ndarray,
+    ) -> None:
+        """
+        Overwrite the subshell occupations IN PLACE with a saved set (e.g. occupations.txt).
+
+        The (n, l) list must equal this one: build the solver with the same occupation_rule
+        first, so that 'aufbau' has appended the same candidate subshells. Used to replay a
+        saved aufbau state in a forward pass or at an intermediate SCF iteration, where the
+        occupations must not be recomputed.
+        """
+        if self.occupation_rule != "aufbau":
+            raise ValueError(AUFBAU_SET_OCCUPATIONS_TABLE_RULE_ERROR.format(self.occupation_rule))
+        occ_n       = np.asarray(occ_n, dtype=float).reshape(-1)
+        occ_l       = np.asarray(occ_l, dtype=float).reshape(-1)
+        occupations = np.asarray(occupations, dtype=float).reshape(-1)
+        mine = list(zip(np.asarray(self.occ_n, dtype=int).tolist(), np.asarray(self.occ_l, dtype=int).tolist()))
+        given = list(zip(np.rint(occ_n).astype(int).tolist(), np.rint(occ_l).astype(int).tolist()))
+        if given != mine:
+            raise ValueError(AUFBAU_OCCUPATION_LIST_MISMATCH_ERROR.format(given, mine))
+        if not np.isclose(float(np.sum(occupations)), float(np.sum(self.occ_spin_up_plus_spin_down)), rtol=0.0, atol=1e-8):
+            raise ValueError(AUFBAU_OCCUPATION_SUM_MISMATCH_ERROR.format(
+                float(np.sum(occupations)), float(np.sum(self.occ_spin_up_plus_spin_down))))
+        self.occ_spin_up[:]                = 0.5 * occupations
+        self.occ_spin_down[:]              = 0.5 * occupations
+        self.occ_spin_up_plus_spin_down[:] = occupations
+
+
+    def smearing_entropy_term(self) -> float:
+        """
+        -T S of the Fermi-Dirac subshell occupations (Ha). Added to the total energy it gives
+        the free energy that M-SPARC reports. Zero for occupation_rule 'table' or smearing 0.
+        """
+        if self.occupation_rule != "aufbau" or not self.occupation_smearing:
+            return 0.0
+        degeneracy = 2.0 * (2 * np.asarray(self.occ_l, dtype=float) + 1)
+        f = np.clip(self.occupations / degeneracy, 1.0e-300, 1.0 - 1.0e-16)
+        s = f * np.log(f) + (1.0 - f) * np.log1p(-f)
+        return float(self.occupation_smearing * np.sum(degeneracy * s))
+
+
+    @staticmethod
+    def fermi_dirac_subshell_occupations(
+        energies    : np.ndarray,
+        degeneracy  : np.ndarray,
+        n_electrons : float,
+        smearing    : float,
+    ) -> np.ndarray:
+        """
+        Subshell occupations N_i = g_i / (1 + exp((eps_i - mu)/kT)) with sum_i N_i = n_electrons.
+
+        smearing = kT (Ha). kT = 0 fills the subshells strictly in ascending eigenvalue
+        order, the last one fractionally.
+        """
+        energies   = np.asarray(energies, dtype=float)
+        degeneracy = np.asarray(degeneracy, dtype=float)
+        capacity   = float(np.sum(degeneracy))
+        if capacity <= n_electrons:
+            raise ValueError(AUFBAU_CAPACITY_TOO_SMALL_ERROR.format(capacity, n_electrons))
+
+        if smearing == 0.0:
+            occupations = np.zeros_like(energies)
+            remaining   = float(n_electrons)
+            for i in np.argsort(energies, kind="stable"):
+                occupations[i] = min(degeneracy[i], remaining)
+                remaining     -= occupations[i]
+                if remaining <= 0.0:
+                    break
+            return occupations
+
+        mu_low  = float(np.min(energies)) - 40.0 * smearing - 1.0
+        mu_high = float(np.max(energies)) + 40.0 * smearing + 1.0
+        mu = brentq(OccupationInfo._fermi_dirac_electron_count_residual, mu_low, mu_high,
+                    args=(energies, degeneracy, float(n_electrons), float(smearing)), xtol=1.0e-14)
+        return degeneracy * expit((mu - energies) / smearing)
+
+
+    @staticmethod
+    def _fermi_dirac_electron_count_residual(
+        mu          : float,
+        energies    : np.ndarray,
+        degeneracy  : np.ndarray,
+        n_electrons : float,
+        smearing    : float,
+    ) -> float:
+        """sum_i g_i f((eps_i - mu)/kT) - n_electrons, the root function for the chemical potential."""
+        return float(np.sum(degeneracy * expit((mu - energies) / smearing))) - n_electrons
+
+
     @property
     def closed_shell_flag(self) -> bool:
         """
@@ -904,6 +1157,8 @@ class OccupationInfo:
         print(f"\t occ_spin_up                : {_format_array_for_print(self.occ_spin_up)}")
         print(f"\t occ_spin_down              : {_format_array_for_print(self.occ_spin_down)}")
         print(f"\t occ_spin_up_plus_spin_down : {_format_array_for_print(self.occ_spin_up_plus_spin_down)}")
+        if self.occupation_rule != "table":
+            print(f"\t occupation_rule            : {self.occupation_rule} (smearing kT = {self.occupation_smearing} Ha)")
         print()
 
 

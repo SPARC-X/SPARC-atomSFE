@@ -4,6 +4,14 @@
 -changes
 
 ----------------
+Sep 28, 2026
+Name: Qihao Cheng
+Changes: (src/utils/occupation_states.py, src/solver.py, src/scf/driver.py, src/xc/rpa.py, src/xc/hf.py)
+1. Add ``occupation_rule`` ``{'table', 'aufbau'}`` (default ``table``) and ``occupation_smearing`` on ``AtomicDFTSolver`` (Advanced functional parameters).
+2. ``aufbau`` refills subshell occupations from KS eigenvalues each SCF iteration (Fermi–Dirac, default kT = 1e-3 Ha).
+3. If RPA ``ln(1 - λ)`` fails under ``table``, suggest ``occupation_rule='aufbau'``.
+
+----------------
 Sep 09, 2026
 Name: Qihao Cheng
 Changes: (README.md, src/xc/oep.py, src/solver.py, src/scf/driver.py)

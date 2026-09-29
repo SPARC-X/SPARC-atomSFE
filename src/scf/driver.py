@@ -242,6 +242,13 @@ HYBRID_MIXING_PARAMETER_NOT_0_25_WARNING = \
     "WARNING: 'hybrid_mixing_parameter' for {} should be 0.25, got {}"
 
 # SCF Driver Warning Messages
+# occupation_rule='aufbau': the density residual is dominated by the core for all-electron atoms
+# and hardly sees a d/f frontier, where dN/deps ~ 1e3 e/Ha; a converged density could then
+# still leave the stored spectrum and occupations Fermi-Dirac inconsistent by up to 0.26 e
+# (Ac PBE0). The loops therefore also require the subshell occupations to stay put.
+AUFBAU_OCCUPATION_TOLERANCE = 1.0e-4
+AUFBAU_OCCUPATIONS_STILL_MOVING_MESSAGE = \
+    "\t (occupation_rule 'aufbau': occupations still moving by {:.2e} e > {:.0e}; SCF continues)"
 INNER_SCF_DID_NOT_CONVERGE_WARNING = \
     "WARNING: Inner SCF did not converge after {} iterations"
 HF_CALCULATOR_NOT_AVAILABLE_WARNING = \
@@ -554,6 +561,7 @@ class OuterIterationInfo:
     full_orbitals       : Optional[np.ndarray]
     full_l_terms        : Optional[np.ndarray]
     inner_iterations    : List[InnerIterationInfo]
+    occupations         : Optional[np.ndarray] = None  # subshell occupations at this iteration ('aufbau' only)
     
     def __post_init__(self):
         # Type checking
@@ -655,7 +663,8 @@ class IntermediateInfo:
         self,
         outer_iteration: int,
         outer_rho_residual: float,
-        inner_result: 'SCFResult'
+        inner_result: 'SCFResult',
+        occupations: Optional[np.ndarray] = None,
     ):
         """
         Add information from an outer SCF iteration.
@@ -668,6 +677,9 @@ class IntermediateInfo:
             Outer loop density residual
         inner_result : SCFResult
             Result from the inner SCF loop, containing all relevant information
+        occupations : np.ndarray, optional
+            Subshell occupations of this iteration. Only occupation_rule='aufbau' passes
+            them, because only then do they change between outer iterations.
         """
         # Type checking
         assert isinstance(outer_iteration, (int, np.integer)), \
@@ -692,6 +704,7 @@ class IntermediateInfo:
             full_orbitals       = inner_result.full_orbitals.copy()       if inner_result.full_orbitals       is not None else None,
             full_l_terms        = inner_result.full_l_terms.copy()        if inner_result.full_l_terms        is not None else None,
             inner_iterations    = inner_iterations_copy,
+            occupations         = np.array(occupations, dtype=float) if occupations is not None else None,
         ))
         
         # Clear inner_iterations for next outer iteration
@@ -1712,6 +1725,10 @@ class SCFDriver:
             rho_nlcc         = self.rho_nlcc
         )
 
+        # occupation_rule='aufbau': occupations of the previous iteration (see AUFBAU_OCCUPATION_TOLERANCE)
+        aufbau_rule          = self.occupation_info.occupation_rule == "aufbau"
+        occupations_previous = np.array(self.occupation_info.occupations, dtype=float, copy=True)
+
         # Reset mixer and convergence checker
         self.mixer.reset()
         self.inner_convergence_checker.reset()
@@ -1838,6 +1855,12 @@ class SCFDriver:
             occ_eigenvalues, occ_eigenvectors = self._reorder_eigenstates_by_occupation(
                 occ_eigenvalues_list, occ_eigenvectors_list
             )
+
+            # occupation_rule='aufbau': refill the subshells from these eigenvalues before the
+            # density is built. No-op for the default 'table' rule.
+            self.occupation_info.update_occupations_from_eigenvalues(occ_eigenvalues)
+            occupation_change    = float(np.max(np.abs(self.occupation_info.occupations - occupations_previous)))
+            occupations_previous = np.array(self.occupation_info.occupations, dtype=float, copy=True)
             
             # Interpolate eigenvectors to quadrature points, also symmetrize the eigenvectors
             occ_orbitals = self.hamiltonian_builder.interpolate_eigenvectors_to_quadrature(
@@ -1855,6 +1878,12 @@ class SCFDriver:
                 rho, rho_new, iteration + 1, 
                 print_status = verbose, prefix = ""
             )
+
+            # occupation_rule='aufbau': a converged density is not enough, the occupations must be too
+            if converged and aufbau_rule and occupation_change > AUFBAU_OCCUPATION_TOLERANCE:
+                converged = False
+                if verbose:
+                    print(AUFBAU_OCCUPATIONS_STILL_MOVING_MESSAGE.format(occupation_change, AUFBAU_OCCUPATION_TOLERANCE))
             
             # Save intermediate information if requested
             if intermediate_info is not None:
@@ -1914,6 +1943,10 @@ class SCFDriver:
         if not converged:
             print(INNER_SCF_DID_NOT_CONVERGE_WARNING.format(max_iter))
 
+        # occupation_rule='aufbau': flag a channel whose extra candidate subshell took
+        # electrons at the final iteration. No-op for the default 'table' rule.
+        self.occupation_info.warn_if_aufbau_candidates_occupied()
+
 
         # Update properties with or without MLXC
         occ_eigenvalues, occ_orbitals, v_xc_ml = self._update_properties(
@@ -1938,9 +1971,15 @@ class SCFDriver:
         # Construct full eigenvalues/orbitals/l-terms at the *final SCF state*.
         # This is a single-shot full-spectrum diagonalization at the converged density.
         if self.switches.needs_full_spectrum or save_full_spectrum:
+            # occupation_rule='aufbau': take the spectrum of the Hamiltonian that set the occupations
+            # (built from the last input density). At an all-electron d/f frontier the output
+            # density still moves ~1e-4 e between shells when the core-dominated residual is at
+            # 1e-8, which shifts the pinned levels enough to break Fermi-Dirac consistency with
+            # the stored occupations (0.09 e for Er). 'table' keeps the output density.
+            spectrum_rho = rho if aufbau_rule else final_density_data.rho
             full_eigen_energies, full_orbitals, full_l_terms = \
                 self._compute_full_orbitals_and_eigenvalues(
-                    rho             = final_density_data.rho,
+                    rho             = spectrum_rho,
                     orbitals        = occ_orbitals,
                     v_x_oep         = v_x_oep,
                     v_c_oep         = v_c_oep,
@@ -1949,6 +1988,7 @@ class SCFDriver:
                     xc_requirements = self.xc_requirements,
                     xc_calculator   = self.xc_calculator,
                     symmetrize      = symmetrize,
+                    normalize_rho   = not aufbau_rule,
                 )
         else:
             full_eigen_energies = None
@@ -2074,6 +2114,9 @@ class SCFDriver:
                 v_x_oep = None
                 v_c_oep = None
             
+            # occupation_rule='aufbau': occupations entering this outer iteration
+            outer_occupations_start = np.array(self.occupation_info.occupations, dtype=float, copy=True)
+
             # Run inner SCF with fixed HF exchange
             inner_result : SCFResult = self._inner_loop(
                 rho_initial             = rho,
@@ -2098,6 +2141,13 @@ class SCFDriver:
                 rho, rho_new, outer_iter + 1,
                 print_status = verbose
             )
+            # occupation_rule='aufbau': the new OEP / exchange potential must not move the occupations either
+            outer_occupation_change = float(np.max(np.abs(self.occupation_info.occupations - outer_occupations_start)))
+            if outer_converged and self.occupation_info.occupation_rule == "aufbau" \
+                    and outer_occupation_change > AUFBAU_OCCUPATION_TOLERANCE:
+                outer_converged = False
+                if verbose:
+                    print(AUFBAU_OCCUPATIONS_STILL_MOVING_MESSAGE.format(outer_occupation_change, AUFBAU_OCCUPATION_TOLERANCE))
             
             # Save intermediate information if requested
             if intermediate_info is not None:
@@ -2105,6 +2155,8 @@ class SCFDriver:
                     outer_iteration    = outer_iter + 1,
                     outer_rho_residual = outer_residual,
                     inner_result       = inner_result,
+                    occupations        = (self.occupation_info.occupations
+                                          if self.occupation_info.occupation_rule == "aufbau" else None),
                 )
             
             if outer_converged:
@@ -2759,6 +2811,9 @@ class SCFDriver:
                 v_x_oep = None
                 v_c_oep = None
             
+            # occupation_rule='aufbau': occupations entering this outer iteration
+            outer_occupations_start = np.array(self.occupation_info.occupations, dtype=float, copy=True)
+
             # Run inner SCF with fixed HF exchange
             inner_result : SCFResult = self._inner_loop(
                 rho_initial             = rho,
@@ -2783,6 +2838,13 @@ class SCFDriver:
                 rho, rho_new, outer_iter + 1,
                 print_status = verbose
             )
+            # occupation_rule='aufbau': the new OEP / exchange potential must not move the occupations either
+            outer_occupation_change = float(np.max(np.abs(self.occupation_info.occupations - outer_occupations_start)))
+            if outer_converged and self.occupation_info.occupation_rule == "aufbau" \
+                    and outer_occupation_change > AUFBAU_OCCUPATION_TOLERANCE:
+                outer_converged = False
+                if verbose:
+                    print(AUFBAU_OCCUPATIONS_STILL_MOVING_MESSAGE.format(outer_occupation_change, AUFBAU_OCCUPATION_TOLERANCE))
             
             # Save intermediate information if requested
             if intermediate_info is not None:
@@ -2790,6 +2852,8 @@ class SCFDriver:
                     outer_iteration    = outer_iter + 1,
                     outer_rho_residual = outer_residual,
                     inner_result       = inner_result,
+                    occupations        = (self.occupation_info.occupations
+                                          if self.occupation_info.occupation_rule == "aufbau" else None),
                 )
             
             if outer_converged:
@@ -2842,6 +2906,7 @@ class SCFDriver:
         v_c_oep         : Optional[np.ndarray]  = None,
         v_xc_ml         : Optional[np.ndarray]  = None,
         symmetrize      : bool                  = False,
+        normalize_rho   : bool                  = True,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         r"""
         Compute full (occupied + virtual) spectrum at a given density.
@@ -2904,7 +2969,7 @@ class SCFDriver:
             V_C_OEP_TYPE_ERROR.format(type(v_c_oep))
 
         # initialize variables
-        rho = self.density_calculator.normalize_density(rho.copy())
+        rho = self.density_calculator.normalize_density(rho.copy()) if normalize_rho else rho.copy()
         density_data = self.density_calculator.create_density_data_from_mixed(
             rho_mixed        = rho,
             orbitals         = orbitals,

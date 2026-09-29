@@ -310,8 +310,11 @@ class HartreeFockExchange:
             for j in range(len(l_coupling_range))
         ]).reshape(len(self.l_values), len(l_coupling_range))
         
-        # Find non-zero Wigner terms (only compute for non-zero combinations)
-        nonzero_wigner_indices = np.argwhere(wigner_3j_squared != 0)
+        # Find non-zero Wigner terms (only compute for non-zero combinations).
+        # Empty subshells (the candidates of occupation_rule='aufbau', set to exactly 0) are skipped:
+        # their prefactor is 0, so the result is unchanged and the expensive products are saved.
+        occupied_orbitals = np.asarray(self.occupations, dtype=float) != 0.0
+        nonzero_wigner_indices = np.argwhere((wigner_3j_squared != 0) & occupied_orbitals[:, np.newaxis])
 
         for idx in range(nonzero_wigner_indices.shape[0]):
             orbital_idx = nonzero_wigner_indices[idx, 0]  # Orbital index
